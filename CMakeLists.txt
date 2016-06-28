@@ -9,6 +9,22 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 message("## phalanx ${CMAKE_BUILD_TYPE} build")
 
+include_directories(/usr/include/cairo)
+
+# Compiler Flags
+include_directories(${PROJECT_SOURCE_DIR}/src ${PROJECT_BINARY_DIR}/src)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99 -Wall -Wextra -Werror-implicit-function-declaration -Wno-unused-parameter -Wno-unused-label")
+
+# Executable
 add_executable(phalanx
+	src/common.c
+	src/cell.c
+	src/util.c
+	src/util-array.c
+	src/lef.c
 	src/main.c
 )
+target_link_libraries(phalanx cairo m)
+
+# Installation
+install(TARGETS phalanx RUNTIME DESTINATION bin)
