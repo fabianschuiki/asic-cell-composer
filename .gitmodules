@@ -1,0 +1,3 @@
+[submodule "deps/libgds"]
+	path = deps/libgds
+	url = fschuiki@login.ee.ethz.ch:git/libgds.git

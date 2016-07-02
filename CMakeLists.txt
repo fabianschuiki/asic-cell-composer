@@ -2,6 +2,9 @@
 cmake_minimum_required(VERSION 2.6)
 project(phalanx)
 
+# Add in dependencies.
+add_subdirectory(deps/libgds)
+
 # Default to a release build, making the project easier to package. If you plan
 # on writing code, call cmake with the -DCMAKE_BUILD_TYPE=debug option.
 if (NOT CMAKE_BUILD_TYPE)
@@ -24,7 +27,7 @@ add_executable(phalanx
 	src/lef.c
 	src/main.c
 )
-target_link_libraries(phalanx cairo m)
+target_link_libraries(phalanx gds cairo m)
 
 # Installation
 install(TARGETS phalanx RUNTIME DESTINATION bin)
