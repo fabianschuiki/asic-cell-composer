@@ -12,22 +12,45 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 message("## phalanx ${CMAKE_BUILD_TYPE} build")
 
-include_directories(/usr/include/cairo)
+include_directories(/usr/include/cairo /usr/local/include/cairo)
 
 # Compiler Flags
 include_directories(${PROJECT_SOURCE_DIR}/src ${PROJECT_BINARY_DIR}/src)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99 -Wall -Wextra -Werror-implicit-function-declaration -Wno-unused-parameter -Wno-unused-label")
 
-# Executable
-add_executable(phalanx
+# Combine the source files into object code to speed up compilation and remove
+# some redundancy.
+add_library(obj-common OBJECT
 	src/common.c
-	src/cell.c
 	src/util.c
 	src/util-array.c
+)
+add_library(obj-lef OBJECT
 	src/lef.c
+)
+add_library(obj-lib OBJECT
+	src/lib.c
+	src/lib-lexer.c
+	src/lib-parser.c
+	src/lib-ast.c
+)
+
+# Executable
+add_executable(phalanx
+	src/cell.c
 	src/main.c
+	$<TARGET_OBJECTS:obj-common>
+	$<TARGET_OBJECTS:obj-lib>
+	$<TARGET_OBJECTS:obj-lef>
 )
 target_link_libraries(phalanx gds cairo m)
+
+# Debugging tools
+add_executable(lib-debug
+	src/lib-debug.c
+	$<TARGET_OBJECTS:obj-common>
+	$<TARGET_OBJECTS:obj-lib>
+)
 
 # Installation
 install(TARGETS phalanx RUNTIME DESTINATION bin)

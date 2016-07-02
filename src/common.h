@@ -10,7 +10,10 @@
 #include <math.h>
 
 #define ASIZE(a) (sizeof(a)/sizeof(*a))
+
+#ifndef M_PI
 #define M_PI 3.14159265358979323846
+#endif
 
 typedef struct library library_t;
 typedef struct cell cell_t;
