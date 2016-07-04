@@ -85,6 +85,25 @@ lib_find_cell(lib_t *lib, const char *name) {
 	return *(lib_cell_t**)array_find(&lib->cells, name, (void*)cmp_name_and_cell, NULL);
 }
 
+unsigned
+lib_get_num_cells(lib_t *lib) {
+	assert(lib);
+	return lib->cells.size;
+}
+
+lib_cell_t *
+lib_get_cell(lib_t *lib, unsigned idx) {
+	assert(lib && idx < lib->cells.size);
+	return array_at(lib->cells, lib_cell_t*, idx);
+}
+
+double
+lib_get_capacitance_unit(lib_t *lib) {
+	return 1e-12;
+}
+
+
+
 static void
 cell_free(lib_cell_t *cell) {
 	assert(cell);
@@ -121,9 +140,40 @@ lib_cell_find_pin(lib_cell_t *cell, const char *name) {
 	return *(lib_pin_t**)array_find(&cell->pins, name, (void*)cmp_name_and_pin, NULL);
 }
 
+const char *
+lib_cell_get_name(lib_cell_t *cell) {
+	assert(cell);
+	return cell->name;
+}
+
+unsigned
+lib_cell_get_num_pins(lib_cell_t *cell) {
+	return cell->pins.size;
+}
+
+lib_pin_t *
+lib_cell_get_pin(lib_cell_t *cell, unsigned idx) {
+	assert(cell && idx < cell->pins.size);
+	return array_at(cell->pins, lib_pin_t*, idx);
+}
+
+
+
 static void
 pin_free(lib_pin_t *pin) {
 	assert(pin);
 	free(pin->name);
 	free(pin);
+}
+
+const char *
+lib_pin_get_name(lib_pin_t *pin) {
+	assert(pin);
+	return pin->name;
+}
+
+double
+lib_pin_get_capacitance(lib_pin_t *pin) {
+	assert(pin);
+	return pin->capacitance;
 }

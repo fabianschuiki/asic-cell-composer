@@ -8,6 +8,22 @@
 #include <unistd.h>
 
 
+static const char *errstrs[] = {
+	[LIB_OK] = "OK",
+	[LIB_ERR_SYNTAX] = "Syntax errpr",
+	[LIB_ERR_CELL_EXISTS] = "Cell already exists",
+	[LIB_ERR_PIN_EXISTS] = "Pin already exists",
+};
+
+const char *
+lib_errstr(int err) {
+	if (err < 0 || err >= (int)ASIZE(errstrs))
+		return "Unknown error";
+	else
+		return errstrs[err];
+}
+
+
 int
 lib_read(const char *path, lib_t **out) {
 	void *ptr;

@@ -48,6 +48,7 @@ struct pin {
 	cell_t *cell;
 	char *name;
 	geometry_t geo;
+	double capacitance;
 };
 
 struct cell {
@@ -85,6 +86,7 @@ struct inst {
 struct net {
 	char *name;
 	array_t conns; /* net_conn_t */
+	double capacitance;
 };
 
 struct net_conn {
@@ -100,6 +102,7 @@ void extents_add(extents_t*, vec2_t);
 library_t *new_library();
 void free_library(library_t*);
 cell_t *get_cell(library_t*, const char *name);
+cell_t *find_cell(library_t*, const char *name);
 
 cell_t *new_cell(library_t*, const char *name);
 void free_cell(cell_t*);
@@ -113,6 +116,7 @@ inst_t *cell_get_inst(cell_t*, size_t idx);
 geometry_t *cell_get_geometry(cell_t*);
 void cell_update_extents(cell_t*);
 pin_t *cell_find_pin(cell_t*, const char *name);
+void cell_update_capacitances(cell_t*);
 
 void geometry_init(geometry_t *geo);
 void geometry_dispose(geometry_t *geo);

@@ -2,6 +2,7 @@
 #include "common.h"
 #include "cell.h"
 #include "lef.h"
+#include "lib.h"
 #include <math.h>
 #include <cairo.h>
 #include <cairo-pdf.h>
@@ -11,7 +12,7 @@ static void
 dump_cell_nets(cell_t *cell, FILE *out) {
 	for (size_t z = 0; z < cell->nets.size; ++z) {
 		net_t *net = array_at(cell->nets, net_t*, z);
-		fprintf(out, "net %s {", net->name ? net->name : "<anon>");
+		fprintf(out, "net %s (%g F) {", net->name ? net->name : "<anon>", net->capacitance);
 		for (size_t z = 0; z < net->conns.size; ++z) {
 			net_conn_t *conn = array_get(&net->conns, z);
 			if (conn->inst) {
@@ -281,6 +282,70 @@ plot_cell_as_pdf(cell_t *cell, const char *filename) {
 }
 
 
+static void
+load_lef(library_t *into, lef_t *lef) {
+	for (size_t z = 0, zn = lef_get_num_macros(lef); z < zn; ++z) {
+		lef_macro_t *macro = lef_get_macro(lef,z);
+		cell_t *cell = find_cell(into, lef_macro_get_name(macro));
+		lef_xy_t xy = lef_macro_get_size(macro);
+		cell_set_size(cell, VEC2(xy.x*1e-6, xy.y*1e-6));
+
+		for (size_t y = 0, yn = lef_macro_get_num_pins(macro); y < yn; ++y) {
+			lef_pin_t *pin = lef_macro_get_pin(macro, y);
+			pin_t *cell_pin = cell_find_pin(cell, lef_pin_get_name(pin));
+			geometry_t *pin_geo = &cell_pin->geo;
+
+			for (size_t x = 0, xn = lef_pin_get_num_ports(pin); x < xn; ++x) {
+				lef_port_t *port = lef_pin_get_port(pin, x);
+
+				for (size_t w = 0, wn = lef_port_get_num_geos(port); w < wn; ++w) {
+					lef_geo_t *geo = lef_port_get_geo(port, w);
+					if (geo->kind == LEF_GEO_LAYER) {
+						lef_geo_layer_t *layer = (void*)geo;
+						layer_t *pin_layer = geometry_find_layer(pin_geo, lef_geo_layer_get_name(layer));
+
+						for (size_t v = 0, vn = lef_geo_layer_get_num_shapes(layer); v < vn; ++v) {
+							lef_geo_shape_t *shape = lef_geo_layer_get_shape(layer, v);
+							uint32_t num_points = lef_geo_shape_get_num_points(shape);
+							lef_xy_t *points = lef_geo_shape_get_points(shape);
+							vec2_t scaled[num_points];
+							for (unsigned i = 0; i < num_points; ++i) {
+								scaled[i].x = points[i].x * 1e-6;
+								scaled[i].y = points[i].y * 1e-6;
+							}
+							layer_add_shape(pin_layer, scaled, num_points);
+							/// @todo Consider the shape's step pattern and replicate the geometry accordingly.
+						}
+					}
+					/// @todo Add support for the VIA geometry.
+				}
+			}
+		}
+
+		cell_update_extents(cell);
+	}
+}
+
+
+static void
+load_lib(library_t *into, lib_t *lib) {
+	for (unsigned u = 0, un = lib_get_num_cells(lib); u < un; ++u) {
+		lib_cell_t *src_cell = lib_get_cell(lib, u);
+		const char *cell_name = lib_cell_get_name(src_cell);
+		cell_t *dst_cell = find_cell(into, cell_name);
+
+		for (unsigned u = 0, un = lib_cell_get_num_pins(src_cell); u < un; ++u) {
+			lib_pin_t *src_pin = lib_cell_get_pin(src_cell, u);
+			const char *pin_name = lib_pin_get_name(src_pin);
+			pin_t *dst_pin = cell_find_pin(dst_cell, pin_name);
+
+			double d = lib_pin_get_capacitance(src_pin);
+			dst_pin->capacitance = d * lib_get_capacitance_unit(lib);
+		}
+	}
+}
+
+
 int
 main(int argc, char **argv) {
 	int res;
@@ -290,79 +355,62 @@ main(int argc, char **argv) {
 	library_t *lib = new_library();
 
 	for (i = 1; i < argc; i++) {
-		lef_t *lef;
-		res = read_lef_file(argv[i], &lef);
-		if (res != PHALANX_OK) {
-			printf("Unable to read LEF file %s: %s\n", argv[i], errstr(res));
-			return 1;
-		}
+		const char *arg = argv[i];
+		const char *suffix = strrchr(arg, '.');
+		if (suffix == arg)
+			suffix = NULL;
+		else if (suffix)
+			++suffix;
 
-		// Convert each macro to a cell.
-		for (size_t z = 0, zn = lef_get_num_macros(lef); z < zn; ++z) {
-			lef_macro_t *macro = lef_get_macro(lef,z);
-			cell_t *cell = new_cell(lib, lef_macro_get_name(macro));
-			lef_xy_t xy = lef_macro_get_size(macro);
-			cell_set_size(cell, VEC2(xy.x*1e-6, xy.y*1e-6));
-
-			for (size_t y = 0, yn = lef_macro_get_num_pins(macro); y < yn; ++y) {
-				lef_pin_t *pin = lef_macro_get_pin(macro, y);
-				pin_t *cell_pin = cell_find_pin(cell, lef_pin_get_name(pin));
-				geometry_t *pin_geo = &cell_pin->geo;
-
-				for (size_t x = 0, xn = lef_pin_get_num_ports(pin); x < xn; ++x) {
-					lef_port_t *port = lef_pin_get_port(pin, x);
-
-					for (size_t w = 0, wn = lef_port_get_num_geos(port); w < wn; ++w) {
-						lef_geo_t *geo = lef_port_get_geo(port, w);
-						if (geo->kind == LEF_GEO_LAYER) {
-							lef_geo_layer_t *layer = (void*)geo;
-							layer_t *pin_layer = geometry_find_layer(pin_geo, lef_geo_layer_get_name(layer));
-
-							for (size_t v = 0, vn = lef_geo_layer_get_num_shapes(layer); v < vn; ++v) {
-								lef_geo_shape_t *shape = lef_geo_layer_get_shape(layer, v);
-								uint32_t num_points = lef_geo_shape_get_num_points(shape);
-								lef_xy_t *points = lef_geo_shape_get_points(shape);
-								vec2_t scaled[num_points];
-								for (unsigned i = 0; i < num_points; ++i) {
-									scaled[i].x = points[i].x * 1e-6;
-									scaled[i].y = points[i].y * 1e-6;
-								}
-								layer_add_shape(pin_layer, scaled, num_points);
-								/// @todo Consider the shape's step pattern and replicate the geometry accordingly.
-							}
-						}
-						/// @todo Add support for the VIA geometry.
-					}
-				}
+		if (strcasecmp(suffix, "lef") == 0) {
+			lef_t *in;
+			res = read_lef_file(arg, &in);
+			if (res != PHALANX_OK) {
+				printf("Unable to read LEF file %s: %s\n", arg, errstr(res));
+				return 1;
 			}
-
-			cell_update_extents(cell);
+			load_lef(lib, in);
+			printf("Loaded %u cells from %s\n", (unsigned)lef_get_num_macros(in), arg);
+			lef_free(in);
 		}
 
-		// do something with the LEF file
-		printf("Read %u macros\n", (uint32_t)lef_get_num_macros(lef));
-		lef_free(lef);
+		else if (strcasecmp(suffix, "lib") == 0) {
+			lib_t *in;
+			res = lib_read(arg, &in);
+			if (res != LIB_OK) {
+				printf("Unable to read LIB file %s: %s\n", arg, lib_errstr(res));
+				return 1;
+			}
+			if (in) {
+				load_lib(lib, in);
+				printf("Loaded %u cells from %s\n", (unsigned)lib_get_num_cells(in), arg);
+				lib_free(in);
+			}
+		}
 	}
 
 	// Create a new cell.
-	cell_t *cell = new_cell(lib, "AND4");
-	cell_t *AN2M0R = get_cell(lib, "AN2M0R");
-	assert(AN2M0R);
-	vec2_t AN2M0R_sz = cell_get_size(AN2M0R);
+	cell_t *cell = find_cell(lib, "AND4");
+	cell_t *AN2M1R = get_cell(lib, "AN2M1R");
+	assert(AN2M1R);
+	vec2_t AN2M1R_sz = cell_get_size(AN2M1R);
+	pin_t *AN2M1R_pA = cell_find_pin(AN2M1R, "A");
+	pin_t *AN2M1R_pB = cell_find_pin(AN2M1R, "B");
+	pin_t *AN2M1R_pZ = cell_find_pin(AN2M1R, "Z");
 
-	inst_t *i0 = new_inst(cell, AN2M0R, "I0");
-	inst_t *i1 = new_inst(cell, AN2M0R, "I1");
-	inst_t *i2 = new_inst(cell, AN2M0R, "I2");
+	inst_t *i0 = new_inst(cell, AN2M1R, "I0");
+	inst_t *i1 = new_inst(cell, AN2M1R, "I1");
+	inst_t *i2 = new_inst(cell, AN2M1R, "I2");
 
 	// Place the AND gates.
 	vec2_t p = {0,0};
 	inst_set_pos(i0, p);
-	p.x += AN2M0R_sz.x;
+	p.x += AN2M1R_sz.x;
 	inst_set_pos(i1, p);
-	p.x += AN2M0R_sz.x;
+	p.x += AN2M1R_sz.x;
 	inst_set_pos(i2, p);
-	p.x += AN2M0R_sz.x;
-	p.y += AN2M0R_sz.y;
+	p.x += AN2M1R_sz.x;
+	p.y += AN2M1R_sz.y;
 	cell_set_size(cell, p);
 	// cell_set_origin(cell, VEC2(-0.2e-6, -0.2e-6));
 
@@ -375,11 +423,11 @@ main(int argc, char **argv) {
 	      *pVDD = cell_find_pin(cell, "VDD"),
 	      *pVSS = cell_find_pin(cell, "VSS");
 
-	copy_geometry(&pA->geo, i0, &cell_find_pin(AN2M0R, "A")->geo);
-	copy_geometry(&pB->geo, i0, &cell_find_pin(AN2M0R, "B")->geo);
-	copy_geometry(&pC->geo, i1, &cell_find_pin(AN2M0R, "A")->geo);
-	copy_geometry(&pD->geo, i1, &cell_find_pin(AN2M0R, "B")->geo);
-	copy_geometry(&pZ->geo, i2, &cell_find_pin(AN2M0R, "Z")->geo);
+	copy_geometry(&pA->geo, i0, &AN2M1R_pA->geo);
+	copy_geometry(&pB->geo, i0, &AN2M1R_pB->geo);
+	copy_geometry(&pC->geo, i1, &AN2M1R_pA->geo);
+	copy_geometry(&pD->geo, i1, &AN2M1R_pB->geo);
+	copy_geometry(&pZ->geo, i2, &AN2M1R_pZ->geo);
 
 	layer_add_shape(geometry_find_layer(&pVDD->geo, "ME1"), (vec2_t[]){
 		{0, 1.65e-6}, {p.x, 1.95e-6}
@@ -389,29 +437,28 @@ main(int argc, char **argv) {
 	}, 2);
 
 	// Add the internal connections of the cell.
-	connect(cell, pVDD, NULL, cell_find_pin(AN2M0R, "VDD"), i0);
-	connect(cell, pVDD, NULL, cell_find_pin(AN2M0R, "VDD"), i1);
-	connect(cell, pVDD, NULL, cell_find_pin(AN2M0R, "VDD"), i2);
+	connect(cell, pVDD, NULL, cell_find_pin(AN2M1R, "VDD"), i0);
+	connect(cell, pVDD, NULL, cell_find_pin(AN2M1R, "VDD"), i1);
+	connect(cell, pVDD, NULL, cell_find_pin(AN2M1R, "VDD"), i2);
 
-	connect(cell, pVSS, NULL, cell_find_pin(AN2M0R, "VSS"), i0);
-	connect(cell, pVSS, NULL, cell_find_pin(AN2M0R, "VSS"), i1);
-	connect(cell, pVSS, NULL, cell_find_pin(AN2M0R, "VSS"), i2);
+	connect(cell, pVSS, NULL, cell_find_pin(AN2M1R, "VSS"), i0);
+	connect(cell, pVSS, NULL, cell_find_pin(AN2M1R, "VSS"), i1);
+	connect(cell, pVSS, NULL, cell_find_pin(AN2M1R, "VSS"), i2);
 
-	connect(cell, pA, NULL, cell_find_pin(AN2M0R, "A"), i0);
-	connect(cell, pB, NULL, cell_find_pin(AN2M0R, "B"), i0);
-	connect(cell, pC, NULL, cell_find_pin(AN2M0R, "A"), i1);
-	connect(cell, pD, NULL, cell_find_pin(AN2M0R, "B"), i1);
-	connect(cell, pZ, NULL, cell_find_pin(AN2M0R, "Z"), i2);
-	connect(cell, cell_find_pin(AN2M0R, "Z"), i0, cell_find_pin(AN2M0R, "A"), i2);
-	connect(cell, cell_find_pin(AN2M0R, "Z"), i1, cell_find_pin(AN2M0R, "B"), i2);
+	connect(cell, pA, NULL, AN2M1R_pA, i0);
+	connect(cell, pB, NULL, AN2M1R_pB, i0);
+	connect(cell, pC, NULL, AN2M1R_pA, i1);
+	connect(cell, pD, NULL, AN2M1R_pB, i1);
+	connect(cell, pZ, NULL, AN2M1R_pZ, i2);
+	connect(cell, AN2M1R_pZ, i0, AN2M1R_pA, i2);
+	connect(cell, AN2M1R_pZ, i1, AN2M1R_pB, i2);
 
-	/// @todo Do something with this new cell...
+	cell_update_capacitances(cell);
 	cell_update_extents(cell);
-	plot_cell_as_pdf(AN2M0R, "debug_AN2M0R.pdf");
-	plot_cell_as_pdf(cell, "debug.pdf");
-
-	// Dump nets in the cell.
 	dump_cell_nets(cell, stdout);
+
+	plot_cell_as_pdf(AN2M1R, "debug_AN2M1R.pdf");
+	plot_cell_as_pdf(cell, "debug.pdf");
 
 	// Clean up.
 	free_library(lib);

@@ -67,6 +67,16 @@ get_cell(library_t *lib, const char *name) {
 	return NULL;
 }
 
+cell_t *
+find_cell(library_t *lib, const char *name) {
+	assert(lib && name);
+	cell_t *cell = get_cell(lib, name);
+	if (cell)
+		return cell;
+	else
+		return new_cell(lib, name);
+}
+
 
 
 cell_t *
@@ -181,6 +191,24 @@ cell_find_pin(cell_t *cell, const char *name) {
 	pin = new_pin(cell, name);
 	array_add(&cell->pins, &pin);
 	return pin;
+}
+
+void
+cell_update_capacitances(cell_t *cell) {
+	assert(cell);
+	for (unsigned u = 0; u < cell->insts.size; ++u) {
+		inst_t *inst = array_at(cell->insts, inst_t*, u);
+		cell_update_capacitances(inst->cell);
+	}
+	for (unsigned u = 0; u < cell->nets.size; ++u) {
+		net_t *net = array_at(cell->nets, net_t*, u);
+		double c = 0;
+		for (unsigned u = 0; u < net->conns.size; ++u) {
+			net_conn_t *conn = array_get(&net->conns, u);
+			c += conn->pin->capacitance;
+		}
+		net->capacitance = c;
+	}
 }
 
 

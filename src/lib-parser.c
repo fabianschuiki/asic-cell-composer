@@ -296,8 +296,6 @@ lib_parse(lib_lexer_t *lex, lib_t **lib) {
 	parser.params = malloc(sizeof(char**) * parser.params_cap);
 
 	err = parse_stmts(&parser, stmt_root, lib);
-	if (err == LIB_OK)
-		printf("Parsed %d cells\n", (int)(*lib)->cells.size);
 
 finish:
 	free(parser.params);

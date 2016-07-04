@@ -17,11 +17,13 @@ enum lib_error {
 };
 
 enum lib_pin_direction {
-	LIB_PIN_IN,
+	LIB_PIN_IN = 1,
 	LIB_PIN_OUT,
 	LIB_PIN_INOUT,
 	LIB_PIN_INTERNAL,
 };
+
+const char *lib_errstr(int err);
 
 int lib_read(const char*, lib_t**);
 int lib_write(const char*, lib_t*);
@@ -30,6 +32,15 @@ lib_t *lib_new(const char *name);
 void lib_free(lib_t*);
 int lib_add_cell(lib_t*, const char *name, lib_cell_t**);
 lib_cell_t *lib_find_cell(lib_t*, const char *name);
+unsigned lib_get_num_cells(lib_t*);
+lib_cell_t *lib_get_cell(lib_t*, unsigned);
+double lib_get_capacitance_unit(lib_t*);
 
 int lib_cell_add_pin(lib_cell_t*, const char *name, lib_pin_t**);
 lib_pin_t *lib_cell_find_pin(lib_cell_t*, const char *name);
+const char *lib_cell_get_name(lib_cell_t*);
+unsigned lib_cell_get_num_pins(lib_cell_t*);
+lib_pin_t *lib_cell_get_pin(lib_cell_t*, unsigned);
+
+const char *lib_pin_get_name(lib_pin_t*);
+double lib_pin_get_capacitance(lib_pin_t*);
