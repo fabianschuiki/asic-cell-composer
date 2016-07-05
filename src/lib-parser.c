@@ -173,7 +173,7 @@ parse_real(const char *str, double *out) {
 static int
 stmt_pin(lib_parser_t *parser, void *arg, enum stmt_kind kind, char *name, char **params, unsigned num_params) {
 	int err;
-	lib_pin_t *pin = arg;
+	lib_phx_pin_t *pin = arg;
 	assert(pin);
 
 	if (kind == STMT_SATTR) {
@@ -219,7 +219,7 @@ stmt_cell(lib_parser_t *parser, void *arg, enum stmt_kind kind, char *name, char
 				fprintf(stderr, "  Parameter #%d: '%s'\n", u+1, params[u]);
 			return LIB_ERR_SYNTAX;
 		}
-		lib_pin_t *pin;
+		lib_phx_pin_t *pin;
 		err = lib_cell_add_pin(cell, params[0], &pin);
 		if (err != LIB_OK) {
 			fprintf(stderr, "Cannot declare pin '%s'\n", params[0]);

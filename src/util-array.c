@@ -272,3 +272,33 @@ array_clear(array_t *self) {
 	assert(self);
 	self->size = 0;
 }
+
+
+/**
+ * Performs a binary search in an array under the assumption that it be sorted.
+ * Returns the item found. The optional parameter @a pos is set to the index in
+ * the array at which the item is expected to be found. This function makes it
+ * easy to check whether an item is already present in the array, and if not, to
+ * insert it at the right location as indicated by @a pos.
+ */
+void *
+array_bsearch(array_t *self, const void *key, int (*compare)(const void*, const void*), unsigned *pos) {
+	size_t start = 0, end = self->size;
+	int result;
+
+	while (start < end) {
+		size_t mid = start + (end - start) / 2;
+		result = compare(key, self->items + mid * self->item_size);
+		if (result < 0) {
+			end = mid;
+		} else if (result > 0) {
+			start = mid + 1;
+		} else {
+			if (pos) *pos = mid;
+			return self->items + mid * self->item_size;
+		}
+	}
+
+	if (pos) *pos = start;
+	return NULL;
+}

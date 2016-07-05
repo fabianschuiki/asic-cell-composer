@@ -4,7 +4,7 @@
 
 
 static void cell_free(lib_cell_t*);
-static void pin_free(lib_pin_t*);
+static void pin_free(lib_phx_pin_t*);
 
 
 lib_t *
@@ -33,47 +33,25 @@ cmp_name_and_cell(const char *name, lib_cell_t **cell) {
 }
 
 static int
-cmp_name_and_pin(const char *name, lib_pin_t **pin) {
+cmp_name_and_pin(const char *name, lib_phx_pin_t **pin) {
 	return strcmp(name, (*pin)->name);
-}
-
-static void *
-array_find(array_t *self, const void *key, int (*compare)(const void*, const void*), size_t *pos) {
-	size_t start = 0, end = self->size;
-	int result;
-
-	while (start < end) {
-		size_t mid = start + (end - start) / 2;
-		result = compare(key, self->items + mid * self->item_size);
-		if (result < 0) {
-			end = mid;
-		} else if (result > 0) {
-			start = mid + 1;
-		} else {
-			if (pos) *pos = mid;
-			return self->items + mid * self->item_size;
-		}
-	}
-
-	if (pos) *pos = start;
-	return NULL;
 }
 
 int
 lib_add_cell(lib_t *lib, const char *name, lib_cell_t **out) {
-	size_t pos;
+	unsigned pos;
 	assert(lib && name && out);
 
 	// Find the location where the cell should be inserted. If the cell already
 	// exists, return an error.
-	if (array_find(&lib->cells, name, (void*)cmp_name_and_cell, &pos))
+	if (array_bsearch(&lib->cells, name, (void*)cmp_name_and_cell, &pos))
 		return LIB_ERR_CELL_EXISTS;
 
 	// Create the new cell and insert it at the location found above.
 	lib_cell_t *cell = calloc(1, sizeof(*cell));
 	cell->lib = lib;
 	cell->name = dupstr(name);
-	array_init(&cell->pins, sizeof(lib_pin_t*));
+	array_init(&cell->pins, sizeof(lib_phx_pin_t*));
 	array_insert(&lib->cells, pos, &cell);
 	*out = cell;
 	return LIB_OK;
@@ -82,7 +60,7 @@ lib_add_cell(lib_t *lib, const char *name, lib_cell_t **out) {
 lib_cell_t *
 lib_find_cell(lib_t *lib, const char *name) {
 	assert(lib && name);
-	return *(lib_cell_t**)array_find(&lib->cells, name, (void*)cmp_name_and_cell, NULL);
+	return *(lib_cell_t**)array_bsearch(&lib->cells, name, (void*)cmp_name_and_cell, NULL);
 }
 
 unsigned
@@ -109,24 +87,24 @@ cell_free(lib_cell_t *cell) {
 	assert(cell);
 	free(cell->name);
 	for (size_t z = 0; z < cell->pins.size; ++z) {
-		pin_free(array_at(cell->pins, lib_pin_t*, z));
+		pin_free(array_at(cell->pins, lib_phx_pin_t*, z));
 	}
 	array_dispose(&cell->pins);
 	free(cell);
 }
 
 int
-lib_cell_add_pin(lib_cell_t *cell, const char *name, lib_pin_t **out) {
-	size_t pos;
+lib_cell_add_pin(lib_cell_t *cell, const char *name, lib_phx_pin_t **out) {
+	unsigned pos;
 	assert(cell && name && out);
 
 	// Find the location where the pin should be inserted. If the pin already
 	// exists, return an error.
-	if (array_find(&cell->pins, name, (void*)cmp_name_and_pin, &pos))
+	if (array_bsearch(&cell->pins, name, (void*)cmp_name_and_pin, &pos))
 		return LIB_ERR_PIN_EXISTS;
 
 	// Create the new pin and insert it at the location found above.
-	lib_pin_t *pin = calloc(1, sizeof(*pin));
+	lib_phx_pin_t *pin = calloc(1, sizeof(*pin));
 	pin->cell = cell;
 	pin->name = dupstr(name);
 	array_insert(&cell->pins, pos, &pin);
@@ -134,10 +112,10 @@ lib_cell_add_pin(lib_cell_t *cell, const char *name, lib_pin_t **out) {
 	return LIB_OK;
 }
 
-lib_pin_t *
+lib_phx_pin_t *
 lib_cell_find_pin(lib_cell_t *cell, const char *name) {
 	assert(cell && name);
-	return *(lib_pin_t**)array_find(&cell->pins, name, (void*)cmp_name_and_pin, NULL);
+	return *(lib_phx_pin_t**)array_bsearch(&cell->pins, name, (void*)cmp_name_and_pin, NULL);
 }
 
 const char *
@@ -151,29 +129,29 @@ lib_cell_get_num_pins(lib_cell_t *cell) {
 	return cell->pins.size;
 }
 
-lib_pin_t *
+lib_phx_pin_t *
 lib_cell_get_pin(lib_cell_t *cell, unsigned idx) {
 	assert(cell && idx < cell->pins.size);
-	return array_at(cell->pins, lib_pin_t*, idx);
+	return array_at(cell->pins, lib_phx_pin_t*, idx);
 }
 
 
 
 static void
-pin_free(lib_pin_t *pin) {
+pin_free(lib_phx_pin_t *pin) {
 	assert(pin);
 	free(pin->name);
 	free(pin);
 }
 
 const char *
-lib_pin_get_name(lib_pin_t *pin) {
+lib_pin_get_name(lib_phx_pin_t *pin) {
 	assert(pin);
 	return pin->name;
 }
 
 double
-lib_pin_get_capacitance(lib_pin_t *pin) {
+lib_pin_get_capacitance(lib_phx_pin_t *pin) {
 	assert(pin);
 	return pin->capacitance;
 }

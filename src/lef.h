@@ -11,7 +11,7 @@ typedef struct lef_geo_shape lef_geo_shape_t;
 typedef struct lef_geo_layer lef_geo_layer_t;
 typedef struct lef_geo_via lef_geo_via_t;
 typedef struct lef_macro lef_macro_t;
-typedef struct lef_pin lef_pin_t;
+typedef struct lef_pin lef_phx_pin_t;
 typedef struct lef_port lef_port_t;
 
 
@@ -38,7 +38,7 @@ struct lef_macro {
 	struct lef_xy origin;
 	struct lef_xy size;
 	uint8_t symmetry;
-	array_t pins; /* lef_pin_t* */
+	array_t pins; /* lef_phx_pin_t* */
 	array_t obs; /* lef_geo_t* */
 };
 
@@ -147,13 +147,13 @@ void lef_free_macro(lef_macro_t*);
 const char *lef_macro_get_name(lef_macro_t*);
 lef_xy_t lef_macro_get_size(lef_macro_t*);
 size_t lef_macro_get_num_pins(lef_macro_t*);
-lef_pin_t *lef_macro_get_pin(lef_macro_t*, size_t idx);
+lef_phx_pin_t *lef_macro_get_pin(lef_macro_t*, size_t idx);
 
 struct lef_pin *lef_new_pin(const char *name);
-void lef_free_pin(lef_pin_t*);
-size_t lef_pin_get_num_ports(lef_pin_t*);
-lef_port_t *lef_pin_get_port(lef_pin_t*, size_t idx);
-const char *lef_pin_get_name(lef_pin_t*);
+void lef_free_pin(lef_phx_pin_t*);
+size_t lef_pin_get_num_ports(lef_phx_pin_t*);
+lef_port_t *lef_pin_get_port(lef_phx_pin_t*, size_t idx);
+const char *lef_pin_get_name(lef_phx_pin_t*);
 
 lef_port_t *lef_new_port();
 void lef_free_port(lef_port_t*);

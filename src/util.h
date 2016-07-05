@@ -47,6 +47,8 @@ void array_remove_many(array_t *self, unsigned num_items);
 void array_clear(array_t *self);
 #define array_at(arr, type, index) (((type*)(arr).items)[index])
 
+void *array_bsearch(array_t *self, const void *key, int (*compare)(const void*, const void*), unsigned *pos);
+
 
 /* String and memory duplication */
 char *dupstr(const char *src);

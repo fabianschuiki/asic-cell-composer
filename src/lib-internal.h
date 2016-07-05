@@ -34,7 +34,7 @@ struct lib {
 struct lib_cell {
 	lib_t *lib;
 	char *name;
-	array_t pins; /* pin_t* */
+	array_t pins; /* phx_pin_t* */
 };
 
 struct lib_pin {

@@ -17,18 +17,27 @@
 
 typedef struct library library_t;
 typedef struct cell cell_t;
-typedef struct pin pin_t;
+typedef struct phx_pin phx_pin_t;
 typedef struct geometry geometry_t;
 typedef struct layer layer_t;
 typedef struct shape shape_t;
-typedef struct inst inst_t;
+typedef struct phx_inst phx_inst_t;
 typedef struct vec2 vec2_t;
 typedef struct mat3 mat3_t;
 typedef struct extents extents_t;
 typedef struct tech tech_t;
 typedef struct tech_layer tech_layer_t;
-typedef struct net net_t;
-typedef struct net_conn net_conn_t;
+typedef struct phx_net phx_net_t;
+typedef struct phx_terminal phx_terminal_t;
+typedef struct phx_pin_timing phx_pin_timing_t;
+typedef struct phx_table phx_table_t;
+typedef struct phx_table_format phx_table_format_t;
+typedef struct phx_table_axis phx_table_axis_t;
+typedef union phx_table_index phx_table_index_t;
+typedef enum phx_table_quantity phx_table_quantity_t;
+typedef enum phx_timing_type phx_timing_type_t;
+typedef struct phx_timing_arc phx_timing_arc_t;
+typedef struct phx_table_lerp phx_table_lerp_t;
 
 
 enum {

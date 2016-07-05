@@ -44,14 +44,19 @@ struct shape {
 	uint32_t pt_end;
 };
 
-struct pin {
+struct phx_pin {
 	cell_t *cell;
 	char *name;
 	geometry_t geo;
 	double capacitance;
 };
 
+enum cell_flags {
+	PHX_TIMING = (1 << 2),
+};
+
 struct cell {
+	uint8_t flags;
 	library_t *lib;
 	char *name;
 	/// The cell's origin, in meters.
@@ -65,12 +70,15 @@ struct cell {
 	/// The cell's geometry.
 	geometry_t geo;
 	/// The cell's pins.
-	array_t pins; /* pin_t* */
+	array_t pins; /* phx_pin_t* */
 	/// The cell's nets.
-	array_t nets; /* net_t* */
+	array_t nets; /* phx_net_t* */
+	/// The cell's timing arcs.
+	array_t arcs; /* phx_timing_arc_t */
 };
 
-struct inst {
+struct phx_inst {
+	uint8_t flags;
 	/// The instantiated cell.
 	cell_t *cell;
 	/// The cell within which this instance is placed.
@@ -83,15 +91,31 @@ struct inst {
 	extents_t ext;
 };
 
-struct net {
+struct phx_net {
+	uint8_t invalid;
+	cell_t *cell;
 	char *name;
-	array_t conns; /* net_conn_t */
+	array_t conns; /* phx_terminal_t */
 	double capacitance;
+	array_t arcs; /* phx_timing_arc_t */
+	int is_exposed;
 };
 
-struct net_conn {
-	inst_t *inst;
-	pin_t *pin;
+struct phx_terminal {
+	phx_inst_t *inst;
+	phx_pin_t *pin;
+};
+
+enum phx_timing_type {
+	PHX_TIM_DELAY,
+	PHX_TIM_TRANS,
+};
+
+struct phx_timing_arc {
+	phx_pin_t *pin;
+	phx_pin_t *related_pin;
+	phx_table_t *delay;
+	phx_table_t *transition;
 };
 
 
@@ -112,11 +136,12 @@ void cell_set_size(cell_t*, vec2_t);
 vec2_t cell_get_origin(cell_t*);
 vec2_t cell_get_size(cell_t*);
 size_t cell_get_num_insts(cell_t*);
-inst_t *cell_get_inst(cell_t*, size_t idx);
+phx_inst_t *cell_get_inst(cell_t*, size_t idx);
 geometry_t *cell_get_geometry(cell_t*);
 void cell_update_extents(cell_t*);
-pin_t *cell_find_pin(cell_t*, const char *name);
+phx_pin_t *cell_find_pin(cell_t*, const char *name);
 void cell_update_capacitances(cell_t*);
+void cell_update_timing_arcs(cell_t*);
 
 void geometry_init(geometry_t *geo);
 void geometry_dispose(geometry_t *geo);
@@ -133,9 +158,11 @@ shape_t *layer_get_shape(layer_t*, size_t idx);
 vec2_t *layer_get_points(layer_t*);
 void layer_update_extents(layer_t*);
 
-inst_t *new_inst(cell_t *into, cell_t *cell, const char *name);
-void free_inst(inst_t*);
-void inst_set_pos(inst_t*, vec2_t);
-vec2_t inst_get_pos(inst_t*);
-cell_t *inst_get_cell(inst_t*);
-void inst_update_extents(inst_t*);
+phx_inst_t *new_inst(cell_t *into, cell_t *cell, const char *name);
+void free_inst(phx_inst_t*);
+void inst_set_pos(phx_inst_t*, vec2_t);
+vec2_t inst_get_pos(phx_inst_t*);
+cell_t *inst_get_cell(phx_inst_t*);
+void inst_update_extents(phx_inst_t*);
+
+void phx_cell_set_timing_table(cell_t*, phx_pin_t*, phx_pin_t*, phx_timing_type_t, phx_table_t*);

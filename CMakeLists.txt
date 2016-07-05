@@ -24,6 +24,7 @@ add_library(obj-common OBJECT
 	src/common.c
 	src/util.c
 	src/util-array.c
+	src/table.c
 )
 add_library(obj-lef OBJECT
 	src/lef.c
