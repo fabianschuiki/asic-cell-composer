@@ -3,7 +3,7 @@
 #include "util.h"
 
 
-static void cell_free(lib_cell_t*);
+static void cell_free(lib_phx_cell_t*);
 static void pin_free(lib_phx_pin_t*);
 
 
@@ -12,7 +12,7 @@ lib_new(const char *name) {
 	assert(name);
 	lib_t *lib = calloc(1, sizeof(*lib));
 	lib->name = dupstr(name);
-	array_init(&lib->cells, sizeof(cell_t*));
+	array_init(&lib->cells, sizeof(phx_cell_t*));
 	return lib;
 }
 
@@ -21,14 +21,14 @@ lib_free(lib_t *lib) {
 	assert(lib);
 	free(lib->name);
 	for (size_t z = 0; z < lib->cells.size; ++z) {
-		cell_free(array_at(lib->cells, lib_cell_t*, z));
+		cell_free(array_at(lib->cells, lib_phx_cell_t*, z));
 	}
 	array_dispose(&lib->cells);
 	free(lib);
 }
 
 static int
-cmp_name_and_cell(const char *name, lib_cell_t **cell) {
+cmp_name_and_cell(const char *name, lib_phx_cell_t **cell) {
 	return strcmp(name, (*cell)->name);
 }
 
@@ -38,7 +38,7 @@ cmp_name_and_pin(const char *name, lib_phx_pin_t **pin) {
 }
 
 int
-lib_add_cell(lib_t *lib, const char *name, lib_cell_t **out) {
+lib_add_cell(lib_t *lib, const char *name, lib_phx_cell_t **out) {
 	unsigned pos;
 	assert(lib && name && out);
 
@@ -48,7 +48,7 @@ lib_add_cell(lib_t *lib, const char *name, lib_cell_t **out) {
 		return LIB_ERR_CELL_EXISTS;
 
 	// Create the new cell and insert it at the location found above.
-	lib_cell_t *cell = calloc(1, sizeof(*cell));
+	lib_phx_cell_t *cell = calloc(1, sizeof(*cell));
 	cell->lib = lib;
 	cell->name = dupstr(name);
 	array_init(&cell->pins, sizeof(lib_phx_pin_t*));
@@ -57,10 +57,10 @@ lib_add_cell(lib_t *lib, const char *name, lib_cell_t **out) {
 	return LIB_OK;
 }
 
-lib_cell_t *
+lib_phx_cell_t *
 lib_find_cell(lib_t *lib, const char *name) {
 	assert(lib && name);
-	return *(lib_cell_t**)array_bsearch(&lib->cells, name, (void*)cmp_name_and_cell, NULL);
+	return *(lib_phx_cell_t**)array_bsearch(&lib->cells, name, (void*)cmp_name_and_cell, NULL);
 }
 
 unsigned
@@ -69,10 +69,10 @@ lib_get_num_cells(lib_t *lib) {
 	return lib->cells.size;
 }
 
-lib_cell_t *
+lib_phx_cell_t *
 lib_get_cell(lib_t *lib, unsigned idx) {
 	assert(lib && idx < lib->cells.size);
-	return array_at(lib->cells, lib_cell_t*, idx);
+	return array_at(lib->cells, lib_phx_cell_t*, idx);
 }
 
 double
@@ -83,7 +83,7 @@ lib_get_capacitance_unit(lib_t *lib) {
 
 
 static void
-cell_free(lib_cell_t *cell) {
+cell_free(lib_phx_cell_t *cell) {
 	assert(cell);
 	free(cell->name);
 	for (size_t z = 0; z < cell->pins.size; ++z) {
@@ -94,7 +94,7 @@ cell_free(lib_cell_t *cell) {
 }
 
 int
-lib_cell_add_pin(lib_cell_t *cell, const char *name, lib_phx_pin_t **out) {
+lib_cell_add_pin(lib_phx_cell_t *cell, const char *name, lib_phx_pin_t **out) {
 	unsigned pos;
 	assert(cell && name && out);
 
@@ -113,24 +113,24 @@ lib_cell_add_pin(lib_cell_t *cell, const char *name, lib_phx_pin_t **out) {
 }
 
 lib_phx_pin_t *
-lib_cell_find_pin(lib_cell_t *cell, const char *name) {
+lib_cell_find_pin(lib_phx_cell_t *cell, const char *name) {
 	assert(cell && name);
 	return *(lib_phx_pin_t**)array_bsearch(&cell->pins, name, (void*)cmp_name_and_pin, NULL);
 }
 
 const char *
-lib_cell_get_name(lib_cell_t *cell) {
+lib_cell_get_name(lib_phx_cell_t *cell) {
 	assert(cell);
 	return cell->name;
 }
 
 unsigned
-lib_cell_get_num_pins(lib_cell_t *cell) {
+lib_cell_get_num_pins(lib_phx_cell_t *cell) {
 	return cell->pins.size;
 }
 
 lib_phx_pin_t *
-lib_cell_get_pin(lib_cell_t *cell, unsigned idx) {
+lib_cell_get_pin(lib_phx_cell_t *cell, unsigned idx) {
 	assert(cell && idx < cell->pins.size);
 	return array_at(cell->pins, lib_phx_pin_t*, idx);
 }

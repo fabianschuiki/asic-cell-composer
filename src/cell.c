@@ -3,7 +3,7 @@
 #include "table.h"
 
 
-static phx_pin_t *new_pin(cell_t *cell, const char *name);
+static phx_pin_t *new_pin(phx_cell_t *cell, const char *name);
 static void free_pin(phx_pin_t *pin);
 static void timing_arc_dispose(phx_timing_arc_t *arc);
 static void phx_net_update(phx_net_t*, uint8_t bits);
@@ -39,7 +39,7 @@ extents_add(extents_t *ext, vec2_t v) {
 library_t *
 new_library() {
 	library_t *lib = calloc(1, sizeof(*lib));
-	array_init(&lib->cells, sizeof(cell_t*));
+	array_init(&lib->cells, sizeof(phx_cell_t*));
 	return lib;
 }
 
@@ -48,7 +48,7 @@ free_library(library_t *lib) {
 	size_t z;
 	assert(lib);
 	for (z = 0; z < lib->cells.size; z++) {
-		free_cell(array_at(lib->cells, cell_t*, z));
+		free_cell(array_at(lib->cells, phx_cell_t*, z));
 	}
 	free(lib);
 }
@@ -57,12 +57,12 @@ free_library(library_t *lib) {
  * @return A pointer to the cell with the given name, or `NULL` if no such cell
  *         exists.
  */
-cell_t *
+phx_cell_t *
 get_cell(library_t *lib, const char *name) {
 	assert(lib && name);
 	/// @todo Keep a sorted lookup table to increase the speed of this.
 	for (size_t z = 0; z < lib->cells.size; ++z) {
-		cell_t *cell = array_at(lib->cells, cell_t*, z);
+		phx_cell_t *cell = array_at(lib->cells, phx_cell_t*, z);
 		if (strcmp(cell->name, name) == 0){
 			return cell;
 		}
@@ -70,10 +70,10 @@ get_cell(library_t *lib, const char *name) {
 	return NULL;
 }
 
-cell_t *
+phx_cell_t *
 find_cell(library_t *lib, const char *name) {
 	assert(lib && name);
-	cell_t *cell = get_cell(lib, name);
+	phx_cell_t *cell = get_cell(lib, name);
 	if (cell)
 		return cell;
 	else
@@ -82,10 +82,10 @@ find_cell(library_t *lib, const char *name) {
 
 
 
-cell_t *
+phx_cell_t *
 new_cell(library_t *lib, const char *name) {
 	assert(lib && name);
-	cell_t *cell = calloc(1, sizeof(*cell));
+	phx_cell_t *cell = calloc(1, sizeof(*cell));
 	cell->lib = lib;
 	cell->name = dupstr(name);
 	array_init(&cell->insts, sizeof(phx_inst_t*));
@@ -98,7 +98,7 @@ new_cell(library_t *lib, const char *name) {
 }
 
 void
-free_cell(cell_t *cell) {
+free_cell(phx_cell_t *cell) {
 	assert(cell);
 	for (size_t z = 0; z < cell->insts.size; ++z) {
 		free_inst(array_at(cell->insts, phx_inst_t*, z));
@@ -119,57 +119,57 @@ free_cell(cell_t *cell) {
 }
 
 const char *
-cell_get_name(cell_t *cell) {
+cell_get_name(phx_cell_t *cell) {
 	assert(cell);
 	return cell->name;
 }
 
 void
-cell_set_origin(cell_t *cell, vec2_t o) {
+cell_set_origin(phx_cell_t *cell, vec2_t o) {
 	assert(cell);
 	cell->origin = o;
 	/// @todo update_extents(cell);
 }
 
 void
-cell_set_size(cell_t *cell, vec2_t sz) {
+cell_set_size(phx_cell_t *cell, vec2_t sz) {
 	assert(cell);
 	cell->size = sz;
 	/// @todo update_extents(cell);
 }
 
 vec2_t
-cell_get_origin(cell_t *cell) {
+cell_get_origin(phx_cell_t *cell) {
 	assert(cell);
 	return cell->origin;
 }
 
 vec2_t
-cell_get_size(cell_t *cell) {
+cell_get_size(phx_cell_t *cell) {
 	assert(cell);
 	return cell->size;
 }
 
 size_t
-cell_get_num_insts(cell_t *cell) {
+cell_get_num_insts(phx_cell_t *cell) {
 	assert(cell);
 	return cell->insts.size;
 }
 
 phx_inst_t *
-cell_get_inst(cell_t *cell, size_t idx) {
+cell_get_inst(phx_cell_t *cell, size_t idx) {
 	assert(cell && idx < cell->insts.size);
 	return array_at(cell->insts, phx_inst_t*, idx);
 }
 
 geometry_t *
-cell_get_geometry(cell_t *cell) {
+cell_get_geometry(phx_cell_t *cell) {
 	assert(cell);
 	return &cell->geo;
 }
 
 void
-cell_update_extents(cell_t *cell) {
+cell_update_extents(phx_cell_t *cell) {
 	assert(cell);
 	geometry_update_extents(&cell->geo);
 	extents_reset(&cell->ext);
@@ -187,7 +187,7 @@ cell_update_extents(cell_t *cell) {
 }
 
 phx_pin_t *
-cell_find_pin(cell_t *cell, const char *name) {
+cell_find_pin(phx_cell_t *cell, const char *name) {
 	phx_pin_t *pin;
 	assert(cell && name);
 	for (size_t z = 0, zn = cell->pins.size; z < zn; ++z) {
@@ -202,7 +202,7 @@ cell_find_pin(cell_t *cell, const char *name) {
 }
 
 void
-cell_update_capacitances(cell_t *cell) {
+cell_update_capacitances(phx_cell_t *cell) {
 	assert(cell);
 	for (unsigned u = 0; u < cell->insts.size; ++u) {
 		phx_inst_t *inst = array_at(cell->insts, phx_inst_t*, u);
@@ -330,7 +330,7 @@ layer_update_extents(layer_t *layer) {
 
 
 phx_inst_t *
-new_inst(cell_t *into, cell_t *cell, const char *name) {
+new_inst(phx_cell_t *into, phx_cell_t *cell, const char *name) {
 	assert(into && cell);
 	phx_inst_t *inst = calloc(1, sizeof(*inst));
 	inst->cell = cell;
@@ -359,7 +359,7 @@ inst_get_pos(phx_inst_t *inst) {
 	return inst->pos;
 }
 
-cell_t *
+phx_cell_t *
 inst_get_cell(phx_inst_t *inst) {
 	assert(inst);
 	return inst->cell;
@@ -376,7 +376,7 @@ inst_update_extents(phx_inst_t *inst) {
 
 
 static phx_pin_t *
-new_pin(cell_t *cell, const char *name) {
+new_pin(phx_cell_t *cell, const char *name) {
 	assert(cell && name);
 	phx_pin_t *pin = calloc(1, sizeof(*cell));
 	pin->cell = cell;
@@ -409,7 +409,7 @@ compare_timing_arcs(phx_timing_arc_t *a, phx_timing_arc_t *b) {
  * Obtains a timing arc from a cell. Creates the arc if it does not yet exist.
  */
 static phx_timing_arc_t *
-cell_get_timing_arc(cell_t *cell, phx_pin_t *pin, phx_pin_t *related_pin) {
+cell_get_timing_arc(phx_cell_t *cell, phx_pin_t *pin, phx_pin_t *related_pin) {
 	assert(cell && pin);
 	unsigned idx;
 	phx_timing_arc_t key = { .pin = pin, .related_pin = related_pin };
@@ -425,7 +425,7 @@ cell_get_timing_arc(cell_t *cell, phx_pin_t *pin, phx_pin_t *related_pin) {
 
 
 void
-phx_cell_set_timing_table(cell_t *cell, phx_pin_t *pin, phx_pin_t *related_pin, phx_timing_type_t type, phx_table_t *table) {
+phx_cell_set_timing_table(phx_cell_t *cell, phx_pin_t *pin, phx_pin_t *related_pin, phx_timing_type_t type, phx_table_t *table) {
 	assert(cell && pin && table);
 	phx_timing_arc_t *arc = cell_get_timing_arc(cell, pin, related_pin);
 	phx_table_t **slot;
@@ -450,7 +450,7 @@ timing_arc_dispose(phx_timing_arc_t *arc) {
 
 
 static void
-cell_invalidate_recursively(cell_t *cell, uint32_t flag) {
+cell_invalidate_recursively(phx_cell_t *cell, uint32_t flag) {
 	assert(cell);
 	cell->flags |= flag;
 	for (unsigned u = 0; u < cell->insts.size; ++u) {
@@ -459,7 +459,7 @@ cell_invalidate_recursively(cell_t *cell, uint32_t flag) {
 }
 
 static void
-cell_update_timing_arcs_inner(cell_t *cell) {
+cell_update_timing_arcs_inner(phx_cell_t *cell) {
 	assert(cell);
 	cell->flags &= ~PHX_TIMING;
 	printf("Updating timing arcs of cell %s\n", cell->name);
@@ -474,7 +474,7 @@ cell_update_timing_arcs_inner(cell_t *cell) {
 }
 
 static void
-cell_update_recursively(cell_t *cell) {
+cell_update_recursively(phx_cell_t *cell) {
 	assert(cell);
 	for (unsigned u = 0; u < cell->insts.size; ++u) {
 		cell_update_recursively(array_at(cell->insts, phx_inst_t*, u)->cell);
@@ -483,7 +483,7 @@ cell_update_recursively(cell_t *cell) {
 }
 
 void
-cell_update_timing_arcs(cell_t *cell) {
+cell_update_timing_arcs(phx_cell_t *cell) {
 	assert(cell);
 	cell_invalidate_recursively(cell, PHX_TIMING);
 	cell_update_recursively(cell);

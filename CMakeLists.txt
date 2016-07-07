@@ -26,6 +26,10 @@ add_library(obj-common OBJECT
 	src/util-array.c
 	src/table.c
 )
+add_library(obj-design OBJECT
+	src/design-cell.c
+	src/design-inst.c
+)
 add_library(obj-lef OBJECT
 	src/lef.c
 )
@@ -41,6 +45,7 @@ add_executable(phalanx
 	src/cell.c
 	src/main.c
 	$<TARGET_OBJECTS:obj-common>
+	$<TARGET_OBJECTS:obj-design>
 	$<TARGET_OBJECTS:obj-lib>
 	$<TARGET_OBJECTS:obj-lef>
 )

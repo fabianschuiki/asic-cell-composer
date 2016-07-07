@@ -209,7 +209,7 @@ stmt_pin(lib_parser_t *parser, void *arg, enum stmt_kind kind, char *name, char 
 static int
 stmt_cell(lib_parser_t *parser, void *arg, enum stmt_kind kind, char *name, char **params, unsigned num_params) {
 	int err;
-	lib_cell_t *cell = arg;
+	lib_phx_cell_t *cell = arg;
 	assert(cell);
 
 	if (kind == STMT_GRP && strcmp(name, "pin") == 0) {
@@ -243,7 +243,7 @@ stmt_library(lib_parser_t *parser, void *arg, enum stmt_kind kind, char *name, c
 	assert(lib);
 
 	if (strcmp(name, "cell") == 0) {
-		lib_cell_t *cell;
+		lib_phx_cell_t *cell;
 		err = lib_add_cell(lib, params[0], &cell);
 		if (err != LIB_OK) {
 			fprintf(stderr, "Cannot declare cell '%s'\n", params[0]);

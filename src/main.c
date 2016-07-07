@@ -10,7 +10,7 @@
 
 
 static void
-dump_cell_nets(cell_t *cell, FILE *out) {
+dump_cell_nets(phx_cell_t *cell, FILE *out) {
 	for (size_t z = 0; z < cell->nets.size; ++z) {
 		phx_net_t *net = array_at(cell->nets, phx_net_t*, z);
 		fprintf(out, "net %s (%g F) {", net->name ? net->name : "<anon>", net->capacitance);
@@ -63,7 +63,7 @@ phx_net_connects_to(phx_net_t *net, phx_pin_t *pin, phx_inst_t *inst) {
 }
 
 static void
-connect(cell_t *cell, phx_pin_t *pin_a, phx_inst_t *inst_a, phx_pin_t *pin_b, phx_inst_t *inst_b) {
+connect(phx_cell_t *cell, phx_pin_t *pin_a, phx_inst_t *inst_a, phx_pin_t *pin_b, phx_inst_t *inst_b) {
 	assert(cell && pin_a && pin_b);
 
 	// Find any existing nets that contain these pins. If both pins are
@@ -161,7 +161,7 @@ plot_layer(cairo_t *cr, mat3_t M, layer_t *layer, vec2_t *center) {
 }
 
 static void
-plot_cell_as_pdf(cell_t *cell, const char *filename) {
+plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
 	cairo_t *cr;
 	cairo_surface_t *surface;
 	cairo_text_extents_t extents;
@@ -246,7 +246,7 @@ plot_cell_as_pdf(cell_t *cell, const char *filename) {
 	cairo_set_line_width(cr, 0.5);
 	for (size_t z = 0, zn = cell_get_num_insts(cell); z < zn; ++z) {
 		phx_inst_t *inst = cell_get_inst(cell, z);
-		cell_t *subcell = inst_get_cell(inst);
+		phx_cell_t *subcell = inst_get_cell(inst);
 		vec2_t box0 = mat3_mul_vec2(M, inst_get_pos(inst));
 		vec2_t box1 = mat3_mul_vec2(M, vec2_add(inst_get_pos(inst), cell_get_size(subcell)));
 		cairo_set_source_rgb(cr, 0, 0, 1);
@@ -268,7 +268,7 @@ plot_cell_as_pdf(cell_t *cell, const char *filename) {
 	for (size_t z = 0, zn = cell->geo.layers.size; z < zn; ++z) {
 		cairo_set_source_rgb(cr, 0.75, 0.75, 0.75);
 		plot_layer(cr, M, array_get(&cell->geo.layers, z), NULL);
-		cairo_fill(cr);
+		cairo_stroke(cr);
 	}
 	cairo_restore(cr);
 
@@ -301,7 +301,7 @@ static void
 load_lef(library_t *into, lef_t *lef) {
 	for (size_t z = 0, zn = lef_get_num_macros(lef); z < zn; ++z) {
 		lef_macro_t *macro = lef_get_macro(lef,z);
-		cell_t *cell = find_cell(into, lef_macro_get_name(macro));
+		phx_cell_t *cell = find_cell(into, lef_macro_get_name(macro));
 		lef_xy_t xy = lef_macro_get_size(macro);
 		cell_set_size(cell, VEC2(xy.x*1e-6, xy.y*1e-6));
 
@@ -345,9 +345,9 @@ load_lef(library_t *into, lef_t *lef) {
 static void
 load_lib(library_t *into, lib_t *lib) {
 	for (unsigned u = 0, un = lib_get_num_cells(lib); u < un; ++u) {
-		lib_cell_t *src_cell = lib_get_cell(lib, u);
+		lib_phx_cell_t *src_cell = lib_get_cell(lib, u);
 		const char *cell_name = lib_cell_get_name(src_cell);
-		cell_t *dst_cell = find_cell(into, cell_name);
+		phx_cell_t *dst_cell = find_cell(into, cell_name);
 
 		for (unsigned u = 0, un = lib_cell_get_num_pins(src_cell); u < un; ++u) {
 			lib_phx_pin_t *src_pin = lib_cell_get_pin(src_cell, u);
@@ -357,6 +357,79 @@ load_lib(library_t *into, lib_t *lib) {
 			double d = lib_pin_get_capacitance(src_pin);
 			dst_pin->capacitance = d * lib_get_capacitance_unit(lib);
 		}
+	}
+}
+
+
+enum route_dir {
+	ROUTE_X,
+	ROUTE_Y
+};
+
+struct route_segment {
+	enum route_dir dir;
+	double pos;
+	unsigned layer;
+};
+
+static void
+umc65_via(phx_cell_t *cell, vec2_t pos, unsigned from_layer, unsigned to_layer) {
+
+	char layer_name[16];
+	snprintf(layer_name, sizeof(layer_name), "VI%u", from_layer);
+
+	layer_add_shape(geometry_find_layer(&cell->geo, layer_name), (vec2_t[]){
+		{ pos.x - 0.05e-6, pos.y - 0.05e-6 },
+		{ pos.x + 0.05e-6, pos.y + 0.05e-6 },
+	}, 2);
+
+}
+
+static void
+umc65_route(phx_cell_t *cell, vec2_t start_pos, unsigned start_layer, unsigned end_layer, unsigned num_segments, struct route_segment *segments) {
+
+	unsigned cur_layer = start_layer;
+	vec2_t cur_pos = start_pos;
+
+	for (unsigned u = 0; u < num_segments; ++u) {
+		struct route_segment *seg = segments+u;
+		vec2_t pos_a = cur_pos, pos_b = cur_pos;
+		if (seg->dir == ROUTE_X) pos_b.x = seg->pos;
+		if (seg->dir == ROUTE_Y) pos_b.y = seg->pos;
+		int xdir = pos_a.x < pos_b.x ? 1 : (pos_a.x > pos_b.x ? -1 : 0);
+		int ydir = pos_a.y < pos_b.y ? 1 : (pos_a.y > pos_b.y ? -1 : 0);
+		cur_pos = pos_b;
+
+		// Shift the start and end positions to account for vias and generate
+		// the necessary vias.
+		if (cur_layer != seg->layer) {
+			umc65_via(cell, pos_a, cur_layer, seg->layer);
+			pos_a.x -= xdir * 0.04e-6;
+			pos_a.y -= ydir * 0.04e-6;
+		}
+		unsigned next_layer = (u+1 == num_segments ? end_layer : segments[u+1].layer);
+		if (seg->layer != next_layer) {
+			if (u+1 == num_segments)
+				umc65_via(cell, pos_b, seg->layer, end_layer);
+			pos_b.x += xdir * 0.04e-6;
+			pos_b.y += ydir * 0.04e-6;
+		}
+
+		char layer_name[16];
+		snprintf(layer_name, sizeof(layer_name), "ME%u", seg->layer);
+
+		layer_add_shape(geometry_find_layer(&cell->geo, layer_name), (vec2_t[]){
+			{
+				(pos_a.x < pos_b.x ? pos_a.x : pos_b.x) - 0.05e-6,
+				(pos_a.y < pos_b.y ? pos_a.y : pos_b.y) - 0.05e-6,
+			},
+			{
+				(pos_a.x > pos_b.x ? pos_a.x : pos_b.x) + 0.05e-6,
+				(pos_a.y > pos_b.y ? pos_a.y : pos_b.y) + 0.05e-6,
+			}
+		}, 2);
+
+		cur_layer = seg->layer;
 	}
 }
 
@@ -404,9 +477,108 @@ main(int argc, char **argv) {
 		}
 	}
 
+	// Plot the basic cells.
+	plot_cell_as_pdf(get_cell(lib, "BS1"), "debug_BS1.pdf");
+	plot_cell_as_pdf(get_cell(lib, "ND2M0R"), "debug_ND2M0R.pdf");
+	plot_cell_as_pdf(get_cell(lib, "NR2M0R"), "debug_NR2M0R.pdf");
+
+	// Assemble the bit slice cells.
+	for (unsigned u = 1; u < 3; ++u) {
+		unsigned N = 1 << u;
+		unsigned Nh = 1 << (u-1);
+		char name[32];
+		snprintf(name, sizeof(name), "BS%u", N);
+		printf("Assembling %s\n", name);
+
+		phx_cell_t *cell = new_cell(lib, name);
+		cell_set_size(cell, (vec2_t){3e-6, N*1.8e-6});
+
+		// Instantiate the two inner cells.
+		char inner_name[32];
+		snprintf(inner_name, sizeof(inner_name), "BS%u", Nh);
+		phx_cell_t *inner = get_cell(lib, inner_name);
+		assert(inner);
+		phx_inst_t *i0 = new_inst(cell, inner, "I0");
+		phx_inst_t *i1 = new_inst(cell, inner, "I1");
+		inst_set_pos(i0, (vec2_t){0, 0});
+		inst_set_pos(i1, (vec2_t){0, Nh*1.8e-6});
+		phx_inst_set_orientation(i1, PHX_MIRROR_Y);
+
+		// Create the supply pins.
+		phx_pin_t *pVDD = cell_find_pin(cell, "VDD");
+		phx_pin_t *pVSS = cell_find_pin(cell, "VSS");
+		layer_t *geoVDD = geometry_find_layer(&pVDD->geo, "ME1");
+		layer_t *geoVSS = geometry_find_layer(&pVSS->geo, "ME1");
+		for (unsigned u = 0; u < N+1; ++u) {
+			double y = u * 1.8e-6;
+			layer_add_shape(u % 2 == 0 ? geoVSS : geoVDD, (vec2_t[]){{0, y - 0.15e-6}, {3e-6, y + 0.15e-6}}, 2);
+		}
+
+		// Copy the input pins of the two inner cells.
+		for (unsigned u = 0; u < Nh; ++u) {
+			char bus_lo[32];
+			char bus_hi[32];
+			snprintf(bus_lo, sizeof(bus_lo), "[%u]", u);
+			snprintf(bus_hi, sizeof(bus_hi), "[%u]", u + Nh);
+
+			const char *pins[] = {"D", "GP", "GN", "S"};
+			for (unsigned u = 0; u < ASIZE(pins); ++u) {
+				char buffer[128];
+
+				strcpy(buffer, pins[u]);
+				strcat(buffer, bus_lo);
+				phx_pin_t *src = cell_find_pin(inner, Nh == 1 ? pins[u] : buffer);
+				phx_pin_t *dst0 = cell_find_pin(cell, buffer);
+				strcpy(buffer, pins[u]);
+				strcat(buffer, bus_hi);
+				phx_pin_t *dst1 = cell_find_pin(cell, buffer);
+				assert(src && dst0 && dst1);
+
+				copy_geometry(&dst0->geo, i0, &src->geo);
+				copy_geometry(&dst1->geo, i1, &src->geo);
+
+				connect(cell, dst0, NULL, src, i0);
+				connect(cell, dst1, NULL, src, i1);
+			}
+		}
+
+		// Instantiate the appropriate cell for the output multiplexer.
+		phx_cell_t *cmux = get_cell(lib, u % 2 == 0 ? "NR2M0R" : "ND2M0R");
+		assert(cmux);
+		phx_inst_t *imux = new_inst(cell, cmux, "I2");
+		inst_set_pos(imux, (vec2_t){2.2e-6, (Nh-1)*1.8e-6});
+		if (u > 1)
+			phx_inst_set_orientation(imux, PHX_MIRROR_Y);
+
+		if (u == 1) {
+			// Connect I1.Z to I2.B
+			umc65_route(cell, (vec2_t){2.7e-6, 0.7e-6}, 1, 1, 3, (struct route_segment[]){
+				{ROUTE_Y, 1.4e-6, 2},
+				{ROUTE_X, 2.1e-6, 3},
+				{ROUTE_Y, 2.8e-6, 2},
+			});
+
+			// Connect I0.Z to I2.A
+			umc65_route(cell, (vec2_t){2.15e-6, 0.8e-6}, 1, 1, 1, (struct route_segment[]){
+				{ROUTE_X, 2.15e-6, 1},
+			});
+		} else {
+
+		}
+
+		// Plot the cell for debugging purposes.
+		cell_update_extents(cell);
+		cell_update_capacitances(cell);
+		cell_update_timing_arcs(cell);
+
+		dump_cell_nets(cell, stdout);
+		char path[128];
+		snprintf(path, sizeof(path), "debug_%s.pdf", name);
+		plot_cell_as_pdf(cell, path);
+	}
 
 	// Add some dummy timing tables to the AND2M1R cell.
-	cell_t *AN2M1R = get_cell(lib, "AN2M1R");
+	phx_cell_t *AN2M1R = get_cell(lib, "AN2M1R");
 	if (!AN2M1R) {
 		fprintf(stderr, "Cannot find cell AN2M1R\n");
 		free_library(lib);
@@ -453,7 +625,7 @@ main(int argc, char **argv) {
 	}
 
 	// Create a new cell.
-	cell_t *cell = find_cell(lib, "AND4");
+	phx_cell_t *cell = find_cell(lib, "AND4");
 	vec2_t AN2M1R_sz = cell_get_size(AN2M1R);
 
 	phx_inst_t *i0 = new_inst(cell, AN2M1R, "I0");
@@ -474,12 +646,12 @@ main(int argc, char **argv) {
 
 	// Add the pins.
 	phx_pin_t *pA   = cell_find_pin(cell, "A"),
-	      *pB   = cell_find_pin(cell, "B"),
-	      *pC   = cell_find_pin(cell, "C"),
-	      *pD   = cell_find_pin(cell, "D"),
-	      *pZ   = cell_find_pin(cell, "Z"),
-	      *pVDD = cell_find_pin(cell, "VDD"),
-	      *pVSS = cell_find_pin(cell, "VSS");
+	          *pB   = cell_find_pin(cell, "B"),
+	          *pC   = cell_find_pin(cell, "C"),
+	          *pD   = cell_find_pin(cell, "D"),
+	          *pZ   = cell_find_pin(cell, "Z"),
+	          *pVDD = cell_find_pin(cell, "VDD"),
+	          *pVSS = cell_find_pin(cell, "VSS");
 
 	copy_geometry(&pA->geo, i0, &AN2M1R_pA->geo);
 	copy_geometry(&pB->geo, i0, &AN2M1R_pB->geo);

@@ -28,7 +28,7 @@ struct lib_lexer {
 
 struct lib {
 	char *name;
-	array_t cells; /* cell_t* */
+	array_t cells; /* phx_cell_t* */
 };
 
 struct lib_cell {
@@ -38,7 +38,7 @@ struct lib_cell {
 };
 
 struct lib_pin {
-	lib_cell_t *cell;
+	lib_phx_cell_t *cell;
 	char *name;
 	uint8_t direction;
 	double capacitance;
