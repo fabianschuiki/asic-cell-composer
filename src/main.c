@@ -305,10 +305,10 @@ plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
 
 
 static void
-load_lef(library_t *into, lef_t *lef, phx_tech_t *tech) {
+load_lef(phx_library_t *into, lef_t *lef, phx_tech_t *tech) {
 	for (size_t z = 0, zn = lef_get_num_macros(lef); z < zn; ++z) {
 		lef_macro_t *macro = lef_get_macro(lef,z);
-		phx_cell_t *cell = find_cell(into, lef_macro_get_name(macro));
+		phx_cell_t *cell = phx_library_find_cell(into, lef_macro_get_name(macro), true);
 		lef_xy_t xy = lef_macro_get_size(macro);
 		cell_set_size(cell, VEC2(xy.x*1e-6, xy.y*1e-6));
 
@@ -370,11 +370,11 @@ load_lef(library_t *into, lef_t *lef, phx_tech_t *tech) {
 
 
 static void
-load_lib(library_t *into, lib_t *lib, phx_tech_t *tech) {
+load_lib(phx_library_t *into, lib_t *lib, phx_tech_t *tech) {
 	for (unsigned u = 0, un = lib_get_num_cells(lib); u < un; ++u) {
 		lib_phx_cell_t *src_cell = lib_get_cell(lib, u);
 		const char *cell_name = lib_cell_get_name(src_cell);
-		phx_cell_t *dst_cell = find_cell(into, cell_name);
+		phx_cell_t *dst_cell = phx_library_find_cell(into, cell_name, true);
 
 		for (unsigned u = 0, un = lib_cell_get_num_pins(src_cell); u < un; ++u) {
 			lib_phx_pin_t *src_pin = lib_cell_get_pin(src_cell, u);
@@ -389,12 +389,12 @@ load_lib(library_t *into, lib_t *lib, phx_tech_t *tech) {
 
 
 static void
-load_gds(library_t *into, gds_lib_t *lib, phx_tech_t *tech) {
+load_gds(phx_library_t *into, gds_lib_t *lib, phx_tech_t *tech) {
 	double unit = gds_lib_get_units(lib).dbu_in_m;
 
 	for (size_t z = 0, zn = gds_lib_get_num_structs(lib); z < zn; ++z) {
 		gds_struct_t *str = gds_lib_get_struct(lib, z);
-		phx_cell_t *cell = find_cell(into, gds_struct_get_name(str));
+		phx_cell_t *cell = phx_library_find_cell(into, gds_struct_get_name(str), true);
 		phx_cell_set_gds(cell, str);
 
 		for (size_t z = 0, zn = gds_struct_get_num_elems(str); z < zn; ++z) {
@@ -644,7 +644,7 @@ main(int argc, char **argv) {
 	load_tech_layer_map(tech, "/home/msc16f2/umc65/encounter/tech/streamOut_noObs.map");
 
 	// Create a new library into which cells shall be laoded.
-	library_t *lib = new_library();
+	phx_library_t *lib = phx_library_create(tech);
 
 	for (i = 1; i < argc; i++) {
 		const char *arg = argv[i];
@@ -701,22 +701,22 @@ main(int argc, char **argv) {
 	}
 
 	// Plot the basic cells.
-	plot_cell_as_pdf(get_cell(lib, "BS1"), "debug_BS1.pdf");
-	plot_cell_as_pdf(get_cell(lib, "ND2M0R"), "debug_ND2M0R.pdf");
-	plot_cell_as_pdf(get_cell(lib, "NR2M0R"), "debug_NR2M0R.pdf");
+	plot_cell_as_pdf(phx_library_find_cell(lib, "BS1", false), "debug_BS1.pdf");
+	plot_cell_as_pdf(phx_library_find_cell(lib, "ND2M0R", false), "debug_ND2M0R.pdf");
+	plot_cell_as_pdf(phx_library_find_cell(lib, "NR2M0R", false), "debug_NR2M0R.pdf");
 
 	// Assemble the bit slice cells.
 	struct gds_lib *gds_lib = gds_lib_create();
 	gds_lib_set_name(gds_lib, "debug");
 	gds_lib_set_version(gds_lib, GDS_VERSION_6);
 
-	gds_lib_add_struct(gds_lib, phx_cell_get_gds(get_cell(lib, "BS1")));
-	gds_lib_add_struct(gds_lib, phx_cell_get_gds(get_cell(lib, "ND2M0R")));
-	gds_lib_add_struct(gds_lib, phx_cell_get_gds(get_cell(lib, "NR2M0R")));
+	gds_lib_add_struct(gds_lib, phx_cell_get_gds(phx_library_find_cell(lib, "BS1", false)));
+	gds_lib_add_struct(gds_lib, phx_cell_get_gds(phx_library_find_cell(lib, "ND2M0R", false)));
+	gds_lib_add_struct(gds_lib, phx_cell_get_gds(phx_library_find_cell(lib, "NR2M0R", false)));
 
 	phx_tech_layer_t *L_ME1 = phx_tech_find_layer_name(tech, "ME1", true);
 
-	for (unsigned u = 1; u < 3; ++u) {
+	for (unsigned u = 1; u <= 8; ++u) {
 		unsigned N = 1 << u;
 		unsigned Nh = 1 << (u-1);
 		char name[32];
@@ -729,7 +729,7 @@ main(int argc, char **argv) {
 		// Instantiate the two inner cells.
 		char inner_name[32];
 		snprintf(inner_name, sizeof(inner_name), "BS%u", Nh);
-		phx_cell_t *inner = get_cell(lib, inner_name);
+		phx_cell_t *inner = phx_library_find_cell(lib, inner_name, false);
 		assert(inner);
 		phx_inst_t *i0 = new_inst(cell, inner, "I0");
 		phx_inst_t *i1 = new_inst(cell, inner, "I1");
@@ -786,8 +786,14 @@ main(int argc, char **argv) {
 			}
 		}
 
+		// Connect the input pins.
+		unsigned D_route_layer = (u == 1 ? 1 : 2);
+		umc65_route(cell, tech, (vec2_t){0.1e-6, Nh*1.8e-6 - 1e-6}, D_route_layer, D_route_layer, 1, (struct route_segment[]){
+			{ROUTE_Y, Nh*1.8e-6 + 1e-6, 2},
+		});
+
 		// Instantiate the appropriate cell for the output multiplexer.
-		phx_cell_t *cmux = get_cell(lib, u % 2 == 0 ? "NR2M0R" : "ND2M0R");
+		phx_cell_t *cmux = phx_library_find_cell(lib, u % 2 == 0 ? "NR2M0R" : "ND2M0R", false);
 		assert(cmux);
 		phx_inst_t *imux = new_inst(cell, cmux, "I2");
 		if (u == 1) {
@@ -810,7 +816,43 @@ main(int argc, char **argv) {
 				{ROUTE_X, 2.2e-6, 1},
 			});
 		} else {
+			vec2_t p_src, p_dst_a, p_dst_b;
+			p_src = VEC2(2.9e-6, 0.7e-6);
+			p_dst_a = VEC2(2.5e-6, 1e-6);
+			p_dst_b = VEC2(2.7e-6, 1e-6);
 
+			double y_dst = (Nh-1)*1.8e-6;
+			double y_src = u > 2 ? (Nh/2-1)*1.8e-6 : 0;
+			int channel_idx = u-2;
+			if (channel_idx >= 1) ++channel_idx;
+			if (channel_idx >= 3) ++channel_idx;
+			if (channel_idx >= 8) ++channel_idx;
+			if (channel_idx >= 9) ++channel_idx;
+			double channel = 2.3e-6 - channel_idx*0.2e-6;
+			p_dst_a.y += y_dst;
+			p_dst_b.y += y_dst;
+			p_src.y += y_src;
+
+			// Connect I0.Z to I2.B
+			umc65_route(cell, tech, p_src, 1, 1, 6, (struct route_segment[]){
+				{ROUTE_Y, p_src.y + 0.1e-6, 1},
+				{ROUTE_Y, y_src + 0.4e-6, 2},
+				{ROUTE_X, channel, 3},
+				{ROUTE_Y, y_dst + 0.2e-6, 2},
+				{ROUTE_X, p_dst_a.x, 3},
+				{ROUTE_Y, p_dst_a.y, 2},
+			});
+
+			// Connect I1.Z to I2.A
+			p_src.y += Nh*1.8e-6;
+			y_src += Nh*1.8e-6;
+			umc65_route(cell, tech, p_src, 1, 1, 5, (struct route_segment[]){
+				{ROUTE_Y, y_src + 0.4e-6, 2},
+				{ROUTE_X, channel, 3},
+				{ROUTE_Y, y_dst + 1.4e-6, 2},
+				{ROUTE_X, p_dst_b.x, 3},
+				{ROUTE_Y, p_dst_b.y, 2},
+			});
 		}
 
 		// Plot the cell for debugging purposes.
@@ -837,10 +879,10 @@ main(int argc, char **argv) {
 	gds_lib_destroy(gds_lib);
 
 	// Add some dummy timing tables to the AND2M1R cell.
-	phx_cell_t *AN2M1R = get_cell(lib, "AN2M1R");
+	phx_cell_t *AN2M1R = phx_library_find_cell(lib, "AN2M1R", false);
 	if (!AN2M1R) {
 		fprintf(stderr, "Cannot find cell AN2M1R\n");
-		free_library(lib);
+		phx_library_destroy(lib);
 		return 1;
 	}
 	phx_pin_t *AN2M1R_pA = cell_find_pin(AN2M1R, "A");
@@ -884,7 +926,7 @@ main(int argc, char **argv) {
 	}
 
 	// Create a new cell.
-	phx_cell_t *cell = find_cell(lib, "AND4");
+	phx_cell_t *cell = new_cell(lib, "AND4");
 	vec2_t AN2M1R_sz = cell_get_size(AN2M1R);
 
 	phx_inst_t *i0 = new_inst(cell, AN2M1R, "I0");
@@ -951,6 +993,6 @@ main(int argc, char **argv) {
 	plot_cell_as_pdf(cell, "debug.pdf");
 
 	// Clean up.
-	free_library(lib);
+	phx_library_destroy(lib);
 	return 0;
 }

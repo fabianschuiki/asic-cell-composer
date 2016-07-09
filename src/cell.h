@@ -18,7 +18,10 @@ struct phx_extents {
 	vec2_t max;
 };
 
-struct library {
+struct phx_library {
+	/// The technology the cells in this library are implemented in.
+	phx_tech_t *tech;
+	/// The cells in this library.
 	array_t cells; /* phx_cell_t* */
 };
 
@@ -76,7 +79,7 @@ struct phx_cell {
 	/// The bits of this cell that need to be recalculated.
 	uint8_t invalid;
 	/// The library this cell is part of.
-	library_t *lib;
+	phx_library_t *lib;
 	/// The cell's name.
 	char *name;
 	/// The cell's origin, in meters.
@@ -161,12 +164,11 @@ void extents_reset(phx_extents_t*);
 void extents_include(phx_extents_t*, phx_extents_t*);
 void extents_add(phx_extents_t*, vec2_t);
 
-library_t *new_library();
-void free_library(library_t*);
-phx_cell_t *get_cell(library_t*, const char *name);
-phx_cell_t *find_cell(library_t*, const char *name);
+phx_library_t *phx_library_create(phx_tech_t*);
+void phx_library_destroy(phx_library_t*);
+phx_cell_t *phx_library_find_cell(phx_library_t*, const char*, bool);
 
-phx_cell_t *new_cell(library_t*, const char *name);
+phx_cell_t *new_cell(phx_library_t*, const char *name);
 void free_cell(phx_cell_t*);
 const char *cell_get_name(phx_cell_t*);
 void cell_set_origin(phx_cell_t*, vec2_t);

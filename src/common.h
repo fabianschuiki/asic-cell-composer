@@ -19,14 +19,14 @@
 typedef enum phx_orientation phx_orientation_t;
 typedef enum phx_table_quantity phx_table_quantity_t;
 typedef enum phx_timing_type phx_timing_type_t;
-typedef struct library library_t;
 typedef struct mat3 mat3_t;
 typedef struct phx_cell phx_cell_t;
 typedef struct phx_extents phx_extents_t;
 typedef struct phx_geometry phx_geometry_t;
-typedef struct phx_line phx_line_t;
 typedef struct phx_inst phx_inst_t;
 typedef struct phx_layer phx_layer_t;
+typedef struct phx_library phx_library_t;
+typedef struct phx_line phx_line_t;
 typedef struct phx_net phx_net_t;
 typedef struct phx_pin phx_pin_t;
 typedef struct phx_pin_timing phx_pin_timing_t;
@@ -39,8 +39,6 @@ typedef struct phx_tech phx_tech_t;
 typedef struct phx_tech_layer phx_tech_layer_t;
 typedef struct phx_terminal phx_terminal_t;
 typedef struct phx_timing_arc phx_timing_arc_t;
-typedef struct tech tech_t;
-typedef struct tech_layer tech_layer_t;
 typedef struct vec2 vec2_t;
 typedef union phx_table_index phx_table_index_t;
 

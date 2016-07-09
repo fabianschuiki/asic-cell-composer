@@ -36,20 +36,19 @@ extents_add(phx_extents_t *ext, vec2_t v) {
 
 
 
-library_t *
-new_library() {
-	library_t *lib = calloc(1, sizeof(*lib));
+phx_library_t *
+phx_library_create(phx_tech_t *tech) {
+	phx_library_t *lib = calloc(1, sizeof(*lib));
+	lib->tech = tech;
 	array_init(&lib->cells, sizeof(phx_cell_t*));
 	return lib;
 }
 
 void
-free_library(library_t *lib) {
-	size_t z;
+phx_library_destroy(phx_library_t *lib) {
 	assert(lib);
-	for (z = 0; z < lib->cells.size; z++) {
+	for (size_t z = 0; z < lib->cells.size; z++)
 		free_cell(array_at(lib->cells, phx_cell_t*, z));
-	}
 	free(lib);
 }
 
@@ -58,32 +57,27 @@ free_library(library_t *lib) {
  *         exists.
  */
 phx_cell_t *
-get_cell(library_t *lib, const char *name) {
+phx_library_find_cell(phx_library_t *lib, const char *name, bool create) {
+	phx_cell_t *cell;
 	assert(lib && name);
 	/// @todo Keep a sorted lookup table to increase the speed of this.
 	for (size_t z = 0; z < lib->cells.size; ++z) {
-		phx_cell_t *cell = array_at(lib->cells, phx_cell_t*, z);
-		if (strcmp(cell->name, name) == 0){
+		cell = array_at(lib->cells, phx_cell_t*, z);
+		if (strcmp(cell->name, name) == 0)
 			return cell;
-		}
 	}
-	return NULL;
-}
-
-phx_cell_t *
-find_cell(library_t *lib, const char *name) {
-	assert(lib && name);
-	phx_cell_t *cell = get_cell(lib, name);
-	if (cell)
+	if (create) {
+		cell = new_cell(lib, name);
 		return cell;
-	else
-		return new_cell(lib, name);
+	} else {
+		return NULL;
+	}
 }
 
 
 
 phx_cell_t *
-new_cell(library_t *lib, const char *name) {
+new_cell(phx_library_t *lib, const char *name) {
 	assert(lib && name);
 	phx_cell_t *cell = calloc(1, sizeof(*cell));
 	cell->lib = lib;
