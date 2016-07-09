@@ -38,3 +38,76 @@ phx_inst_get_orientation(phx_inst_t *inst) {
 	assert(inst);
 	return inst->orientation;
 }
+
+
+/**
+ * Translates a point from the parent's coordinate space to the instance's
+ * coordinate space, accounting for origin and orientation.
+ */
+vec2_t
+phx_inst_vec_from_parent(phx_inst_t *inst, vec2_t pt) {
+	assert(inst);
+	pt.x -= inst->pos.x - inst->cell->origin.x;
+	pt.y -= inst->pos.y - inst->cell->origin.y;
+	if (inst->orientation & PHX_ROTATE_90) {
+		double tmp = pt.y;
+		pt.y = pt.x;
+		pt.x = -tmp;
+	}
+	if (inst->orientation & PHX_MIRROR_X) pt.x *= -1;
+	if (inst->orientation & PHX_MIRROR_Y) pt.y *= -1;
+	return pt;
+}
+
+
+/**
+ * Translates a point from the instance's coordinate space to the parent's
+ * coordinate space, accounting for origin and orientation.
+ */
+vec2_t
+phx_inst_vec_to_parent(phx_inst_t *inst, vec2_t pt) {
+	assert(inst);
+	if (inst->orientation & PHX_MIRROR_X) pt.x *= -1;
+	if (inst->orientation & PHX_MIRROR_Y) pt.y *= -1;
+	if (inst->orientation & PHX_ROTATE_90) {
+		double tmp = pt.x;
+		pt.x = pt.y;
+		pt.y = -tmp;
+	}
+	pt.x += inst->pos.x - inst->cell->origin.x;
+	pt.y += inst->pos.y - inst->cell->origin.y;
+	return pt;
+}
+
+
+/**
+ * Copies the contents of one geometry into another, translating the coordinates
+ * from the instance's to the parent's coordinate space. Useful e.g. to raise an
+ * instance's pin to the parent.
+ */
+void
+phx_inst_copy_geometry_to_parent(phx_inst_t *inst, phx_geometry_t *src, phx_geometry_t *dst) {
+	assert(inst && src && dst);
+	for (size_t z = 0; z < src->layers.size; ++z) {
+		phx_layer_t *layer_src = array_get(&src->layers, z);
+		phx_layer_t *layer_dst = phx_geometry_on_layer(dst, layer_src->tech);
+
+		// Lines
+		for (size_t z = 0; z < layer_src->lines.size; ++z) {
+			phx_line_t *line_src = array_at(layer_src->lines, phx_line_t*, z);
+			phx_line_t *line_dst = phx_layer_add_line(layer_dst, line_src->width, line_src->num_pts, line_src->pts);
+			for (size_t z = 0; z < line_src->num_pts; ++z) {
+				line_dst->pts[z] = phx_inst_vec_to_parent(inst, line_src->pts[z]);
+			}
+		}
+
+		// Shapes
+		for (size_t z = 0; z < layer_src->shapes.size; ++z) {
+			phx_shape_t *shape_src = array_at(layer_src->shapes, phx_shape_t*, z);
+			phx_shape_t *shape_dst = phx_layer_add_shape(layer_dst, shape_src->num_pts, shape_src->pts);
+			for (size_t z = 0; z < shape_src->num_pts; ++z) {
+				shape_dst->pts[z] = phx_inst_vec_to_parent(inst, shape_src->pts[z]);
+			}
+		}
+	}
+}

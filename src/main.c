@@ -4,9 +4,11 @@
 #include "lef.h"
 #include "lib.h"
 #include "table.h"
+#include "tech.h"
 #include <math.h>
 #include <cairo.h>
 #include <cairo-pdf.h>
+#include <gds.h>
 
 
 static void
@@ -25,28 +27,6 @@ dump_cell_nets(phx_cell_t *cell, FILE *out) {
 		fprintf(out, " }");
 		if (net->is_exposed) fprintf(out, " exposed");
 		fprintf(out, "\n");
-	}
-}
-
-
-static void
-copy_geometry(geometry_t *dst, phx_inst_t *inst, geometry_t *src) {
-	assert(dst && inst && src);
-	vec2_t off = vec2_sub(inst->pos, inst->cell->origin);
-	for (size_t z = 0; z < src->layers.size; ++z) {
-		layer_t *layer_src = array_get(&src->layers, z);
-		layer_t *layer_dst = geometry_find_layer(dst, layer_src->name);
-
-		vec2_t *raw_points = layer_src->points.items;
-		vec2_t points[layer_src->points.size];
-		for (size_t z = 0; z < layer_src->points.size; ++z) {
-			points[z] = vec2_add(raw_points[z], off);
-		}
-
-		for (size_t z = 0; z < layer_src->shapes.size; ++z) {
-			shape_t *shape = array_get(&layer_src->shapes, z);
-			layer_add_shape(layer_dst, points + shape->pt_begin, shape->pt_end - shape->pt_begin);
-		}
 	}
 }
 
@@ -122,43 +102,60 @@ connect(phx_cell_t *cell, phx_pin_t *pin_a, phx_inst_t *inst_a, phx_pin_t *pin_b
 
 
 static void
-plot_shape(cairo_t *cr, mat3_t M, vec2_t *points, size_t num_points, vec2_t *center) {
-	vec2_t c = VEC2(0,0);
-	vec2_t pt[num_points];
-	for (size_t z = 0; z < num_points; ++z) {
-		pt[z] = mat3_mul_vec2(M, points[z]);
-		c = vec2_add(c, pt[z]);
-	}
+plot_line(cairo_t *cr, mat3_t M, phx_line_t *line, vec2_t *center) {
+	assert(0 && "not implemented");
+}
 
-	if (num_points == 2) {
-		cairo_rectangle(cr, pt[0].x, pt[0].y, pt[1].x-pt[0].x, pt[1].y-pt[0].y);
-		// cairo_fill(cr);
-	}
 
-	c.x /= num_points;
-	c.y /= num_points;
+static void
+plot_shape(cairo_t *cr, mat3_t M, phx_shape_t *shape, vec2_t *center) {
+	vec2_t pt = mat3_mul_vec2(M, shape->pts[0]);
+	vec2_t c = pt;
+	unsigned n = 1;
+
+	cairo_move_to(cr, pt.x, pt.y);
+	for (unsigned u = 1; u < shape->num_pts; ++u) {
+		pt = mat3_mul_vec2(M, shape->pts[u]);
+		cairo_line_to(cr, pt.x, pt.y);
+		c = vec2_add(c, pt);
+		++n;
+	}
+	cairo_close_path(cr);
+
+	c.x /= n;
+	c.y /= n;
 	if (center)
 		*center = c;
 }
 
 
 static void
-plot_layer(cairo_t *cr, mat3_t M, layer_t *layer, vec2_t *center) {
-	vec2_t *points = layer->points.items;
+plot_layer(cairo_t *cr, mat3_t M, phx_layer_t *layer, vec2_t *center) {
 	vec2_t c = VEC2(0,0);
+	unsigned n = 0;
 
-	for (size_t z = 0, zn = layer->shapes.size; z < zn; ++z) {
-		shape_t *shape = array_get(&layer->shapes, z);
+	for (size_t z = 0, zn = phx_layer_get_num_lines(layer); z < zn; ++z) {
+		phx_line_t *line = phx_layer_get_line(layer, z);
 		vec2_t tc;
-		plot_shape(cr, M, points + shape->pt_begin, shape->pt_end - shape->pt_begin, &tc);
+		plot_line(cr, M, line, &tc);
 		c = vec2_add(c, tc);
+		++n;
 	}
 
-	c.x /= layer->shapes.size;
-	c.y /= layer->shapes.size;
+	for (size_t z = 0, zn = phx_layer_get_num_shapes(layer); z < zn; ++z) {
+		phx_shape_t *shape = phx_layer_get_shape(layer, z);
+		vec2_t tc;
+		plot_shape(cr, M, shape, &tc);
+		c = vec2_add(c, tc);
+		++n;
+	}
+
+	c.x /= n;
+	c.y /= n;
 	if (center)
 		*center = c;
 }
+
 
 static void
 plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
@@ -173,7 +170,7 @@ plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
 
 	// Calculate the extents of the cell and determine a transformation matrix
 	// for all metric coordinates.
-	extents_t ext = cell->ext;
+	phx_extents_t ext = cell->ext;
 	extents_add(&ext, VEC2(0,0));
 	extents_add(&ext, cell_get_origin(cell));
 	extents_add(&ext, cell_get_size(cell));
@@ -248,13 +245,23 @@ plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
 		phx_inst_t *inst = cell_get_inst(cell, z);
 		phx_cell_t *subcell = inst_get_cell(inst);
 		vec2_t box0 = mat3_mul_vec2(M, inst_get_pos(inst));
-		vec2_t box1 = mat3_mul_vec2(M, vec2_add(inst_get_pos(inst), cell_get_size(subcell)));
+		vec2_t sz = cell_get_size(subcell);
+		if (inst->orientation & PHX_MIRROR_X) sz.x *= -1;
+		if (inst->orientation & PHX_MIRROR_Y) sz.y *= -1;
+		if (inst->orientation & PHX_ROTATE_90) {
+			double tmp = sz.x;
+			sz.x = sz.y;
+			sz.y = -tmp;
+		}
+		vec2_t box1 = mat3_mul_vec2(M, vec2_add(inst_get_pos(inst), sz));
 		cairo_set_source_rgb(cr, 0, 0, 1);
 		cairo_rectangle(cr, box0.x, box0.y, box1.x-box0.x, box1.y-box0.y);
-		cairo_move_to(cr, box0.x, box1.y);
-		cairo_line_to(cr, box1.x, box0.y);
-		cairo_move_to(cr, box0.x, box0.y);
-		cairo_line_to(cr, box1.x, box1.y);
+		cairo_move_to(cr, (box0.x*0.75+box1.x*0.25), box0.y);
+		cairo_line_to(cr, box0.x, (box0.y*0.75+box1.y*0.25));
+		// cairo_move_to(cr, box0.x, box1.y);
+		// cairo_line_to(cr, box1.x, box0.y);
+		// cairo_move_to(cr, box0.x, box0.y);
+		// cairo_line_to(cr, box1.x, box1.y);
 		cairo_text_extents(cr, cell_get_name(subcell), &extents);
 		cairo_move_to(cr, (box0.x+box1.x-extents.width)/2, (box0.y+box1.y+extents.height)/2);
 		cairo_show_text(cr, cell_get_name(subcell));
@@ -298,7 +305,7 @@ plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
 
 
 static void
-load_lef(library_t *into, lef_t *lef) {
+load_lef(library_t *into, lef_t *lef, phx_tech_t *tech) {
 	for (size_t z = 0, zn = lef_get_num_macros(lef); z < zn; ++z) {
 		lef_macro_t *macro = lef_get_macro(lef,z);
 		phx_cell_t *cell = find_cell(into, lef_macro_get_name(macro));
@@ -306,21 +313,23 @@ load_lef(library_t *into, lef_t *lef) {
 		cell_set_size(cell, VEC2(xy.x*1e-6, xy.y*1e-6));
 
 		for (size_t y = 0, yn = lef_macro_get_num_pins(macro); y < yn; ++y) {
-			lef_phx_pin_t *pin = lef_macro_get_pin(macro, y);
-			phx_pin_t *cell_pin = cell_find_pin(cell, lef_pin_get_name(pin));
-			geometry_t *pin_geo = &cell_pin->geo;
+			lef_phx_pin_t *src_pin = lef_macro_get_pin(macro, y);
+			phx_pin_t *dst_pin = cell_find_pin(cell, lef_pin_get_name(src_pin));
+			phx_geometry_t *dst_geo = &dst_pin->geo;
 
-			for (size_t x = 0, xn = lef_pin_get_num_ports(pin); x < xn; ++x) {
-				lef_port_t *port = lef_pin_get_port(pin, x);
+			for (size_t x = 0, xn = lef_pin_get_num_ports(src_pin); x < xn; ++x) {
+				lef_port_t *port = lef_pin_get_port(src_pin, x);
 
 				for (size_t w = 0, wn = lef_port_get_num_geos(port); w < wn; ++w) {
 					lef_geo_t *geo = lef_port_get_geo(port, w);
 					if (geo->kind == LEF_GEO_LAYER) {
-						lef_geo_layer_t *layer = (void*)geo;
-						layer_t *pin_layer = geometry_find_layer(pin_geo, lef_geo_layer_get_name(layer));
+						lef_geo_layer_t *src_layer = (void*)geo;
+						const char *layer_name = lef_geo_layer_get_name(src_layer);
+						phx_tech_layer_t *tech_layer = phx_tech_find_layer_name(tech, layer_name, true);
+						phx_layer_t *dst_layer = phx_geometry_on_layer(dst_geo, tech_layer);
 
-						for (size_t v = 0, vn = lef_geo_layer_get_num_shapes(layer); v < vn; ++v) {
-							lef_geo_shape_t *shape = lef_geo_layer_get_shape(layer, v);
+						for (size_t v = 0, vn = lef_geo_layer_get_num_shapes(src_layer); v < vn; ++v) {
+							lef_geo_shape_t *shape = lef_geo_layer_get_shape(src_layer, v);
 							uint32_t num_points = lef_geo_shape_get_num_points(shape);
 							lef_xy_t *points = lef_geo_shape_get_points(shape);
 							vec2_t scaled[num_points];
@@ -328,7 +337,25 @@ load_lef(library_t *into, lef_t *lef) {
 								scaled[i].x = points[i].x * 1e-6;
 								scaled[i].y = points[i].y * 1e-6;
 							}
-							layer_add_shape(pin_layer, scaled, num_points);
+
+							/// @todo Use lef_geo_shape_get_kind(shape)
+							switch (shape->kind) {
+								case LEF_SHAPE_RECT:
+									phx_layer_add_shape(dst_layer, 4, (vec2_t[]){
+										{ scaled[0].x, scaled[0].y },
+										{ scaled[1].x, scaled[0].y },
+										{ scaled[1].x, scaled[1].y },
+										{ scaled[0].x, scaled[1].y },
+									});
+									break;
+								case LEF_SHAPE_POLYGON:
+									phx_layer_add_shape(dst_layer, num_points, scaled);
+									break;
+								case LEF_SHAPE_PATH:
+									/// @todo Use actual width of the path.
+									phx_layer_add_line(dst_layer, 0, num_points, scaled);
+									break;
+							}
 							/// @todo Consider the shape's step pattern and replicate the geometry accordingly.
 						}
 					}
@@ -343,7 +370,7 @@ load_lef(library_t *into, lef_t *lef) {
 
 
 static void
-load_lib(library_t *into, lib_t *lib) {
+load_lib(library_t *into, lib_t *lib, phx_tech_t *tech) {
 	for (unsigned u = 0, un = lib_get_num_cells(lib); u < un; ++u) {
 		lib_phx_cell_t *src_cell = lib_get_cell(lib, u);
 		const char *cell_name = lib_cell_get_name(src_cell);
@@ -361,6 +388,54 @@ load_lib(library_t *into, lib_t *lib) {
 }
 
 
+static void
+load_gds(library_t *into, gds_lib_t *lib, phx_tech_t *tech) {
+	double unit = gds_lib_get_units(lib).dbu_in_m;
+
+	for (size_t z = 0, zn = gds_lib_get_num_structs(lib); z < zn; ++z) {
+		gds_struct_t *str = gds_lib_get_struct(lib, z);
+		phx_cell_t *cell = find_cell(into, gds_struct_get_name(str));
+		phx_cell_set_gds(cell, str);
+
+		for (size_t z = 0, zn = gds_struct_get_num_elems(str); z < zn; ++z) {
+			gds_elem_t *elem = gds_struct_get_elem(str, z);
+
+			uint16_t layer_id = gds_elem_get_layer(elem);
+			uint16_t type_id = gds_elem_get_type(elem);
+			gds_xy_t *xy = gds_elem_get_xy(elem);
+			uint16_t num_xy = gds_elem_get_num_xy(elem);
+
+			phx_tech_layer_t *tech_layer = phx_tech_find_layer_id(tech, (uint32_t)layer_id << 16 | type_id, true);
+			phx_layer_t *layer = phx_geometry_on_layer(&cell->geo, tech_layer);
+			vec2_t *pts;
+			size_t num_pts = 0;
+
+			switch (gds_elem_get_kind(elem)) {
+				case GDS_ELEM_BOUNDARY: {
+					num_pts = num_xy - 1;
+					phx_shape_t *shape = phx_layer_add_shape(layer, num_pts, NULL);
+					pts = shape->pts;
+					break;
+				}
+				case GDS_ELEM_PATH: {
+					/// @todo Use the element's width instead of 100nm.
+					num_pts = num_xy;
+					phx_line_t *line = phx_layer_add_line(layer, 0.1e-6, num_pts, NULL);
+					pts = line->pts;
+					break;
+				}
+			}
+
+			// Convert the points to local units.
+			for (uint16_t u = 0; u < num_pts; ++u) {
+				pts[u].x = xy[u].x * unit;
+				pts[u].y = xy[u].y * unit;
+			}
+		}
+	}
+}
+
+
 enum route_dir {
 	ROUTE_X,
 	ROUTE_Y
@@ -373,20 +448,24 @@ struct route_segment {
 };
 
 static void
-umc65_via(phx_cell_t *cell, vec2_t pos, unsigned from_layer, unsigned to_layer) {
+umc65_via(phx_cell_t *cell, phx_tech_t *tech, vec2_t pos, unsigned from_layer, unsigned to_layer) {
 
 	char layer_name[16];
-	snprintf(layer_name, sizeof(layer_name), "VI%u", from_layer);
+	snprintf(layer_name, sizeof(layer_name), "VI%u", from_layer < to_layer ? from_layer : to_layer);
+	phx_tech_layer_t *tech_layer = phx_tech_find_layer_name(tech, layer_name, true);
+	phx_layer_t *layer = phx_geometry_on_layer(&cell->geo, tech_layer);
 
-	layer_add_shape(geometry_find_layer(&cell->geo, layer_name), (vec2_t[]){
+	phx_layer_add_shape(layer, 4, (vec2_t[]){
 		{ pos.x - 0.05e-6, pos.y - 0.05e-6 },
+		{ pos.x + 0.05e-6, pos.y - 0.05e-6 },
 		{ pos.x + 0.05e-6, pos.y + 0.05e-6 },
-	}, 2);
+		{ pos.x - 0.05e-6, pos.y + 0.05e-6 },
+	});
 
 }
 
 static void
-umc65_route(phx_cell_t *cell, vec2_t start_pos, unsigned start_layer, unsigned end_layer, unsigned num_segments, struct route_segment *segments) {
+umc65_route(phx_cell_t *cell, phx_tech_t *tech, vec2_t start_pos, unsigned start_layer, unsigned end_layer, unsigned num_segments, struct route_segment *segments) {
 
 	unsigned cur_layer = start_layer;
 	vec2_t cur_pos = start_pos;
@@ -403,33 +482,154 @@ umc65_route(phx_cell_t *cell, vec2_t start_pos, unsigned start_layer, unsigned e
 		// Shift the start and end positions to account for vias and generate
 		// the necessary vias.
 		if (cur_layer != seg->layer) {
-			umc65_via(cell, pos_a, cur_layer, seg->layer);
+			umc65_via(cell, tech, pos_a, cur_layer, seg->layer);
 			pos_a.x -= xdir * 0.04e-6;
 			pos_a.y -= ydir * 0.04e-6;
 		}
 		unsigned next_layer = (u+1 == num_segments ? end_layer : segments[u+1].layer);
 		if (seg->layer != next_layer) {
 			if (u+1 == num_segments)
-				umc65_via(cell, pos_b, seg->layer, end_layer);
+				umc65_via(cell, tech, pos_b, seg->layer, end_layer);
 			pos_b.x += xdir * 0.04e-6;
 			pos_b.y += ydir * 0.04e-6;
 		}
 
 		char layer_name[16];
 		snprintf(layer_name, sizeof(layer_name), "ME%u", seg->layer);
+		phx_tech_layer_t *tech_layer = phx_tech_find_layer_name(tech, layer_name, true);
+		phx_layer_t *layer = phx_geometry_on_layer(&cell->geo, tech_layer);
 
-		layer_add_shape(geometry_find_layer(&cell->geo, layer_name), (vec2_t[]){
-			{
-				(pos_a.x < pos_b.x ? pos_a.x : pos_b.x) - 0.05e-6,
-				(pos_a.y < pos_b.y ? pos_a.y : pos_b.y) - 0.05e-6,
-			},
-			{
-				(pos_a.x > pos_b.x ? pos_a.x : pos_b.x) + 0.05e-6,
-				(pos_a.y > pos_b.y ? pos_a.y : pos_b.y) + 0.05e-6,
-			}
-		}, 2);
+		vec2_t pos_min = {
+			(pos_a.x < pos_b.x ? pos_a.x : pos_b.x) - 0.05e-6,
+			(pos_a.y < pos_b.y ? pos_a.y : pos_b.y) - 0.05e-6,
+		};
+		vec2_t pos_max = {
+			(pos_a.x > pos_b.x ? pos_a.x : pos_b.x) + 0.05e-6,
+			(pos_a.y > pos_b.y ? pos_a.y : pos_b.y) + 0.05e-6,
+		};
+
+		phx_layer_add_shape(layer, 4, (vec2_t[]){
+			{ pos_min.x, pos_min.y },
+			{ pos_max.x, pos_min.y },
+			{ pos_max.x, pos_max.y },
+			{ pos_min.x, pos_max.y },
+		});
 
 		cur_layer = seg->layer;
+	}
+}
+
+
+static gds_struct_t *
+cell_to_gds(phx_cell_t *cell, gds_lib_t *target) {
+	double unit = 1.0/gds_lib_get_units(target).dbu_in_m;
+	gds_struct_t *str = gds_struct_create(cell->name);
+
+	for (unsigned u = 0; u < cell->geo.layers.size; ++u) {
+		phx_layer_t *layer = array_get(&cell->geo.layers, u);
+		uint16_t layer_id = layer->tech->id >> 16;
+		uint16_t type_id  = layer->tech->id & 0xFFFF;
+
+		// Lines
+		for (size_t z = 0, zn = phx_layer_get_num_lines(layer); z < zn; ++z) {
+			phx_line_t *line = phx_layer_get_line(layer, z);
+			gds_xy_t xy[line->num_pts];
+			for (uint16_t u = 0; u < line->num_pts; ++u) {
+				xy[u].x = line->pts[u].x * unit + 0.5;
+				xy[u].y = line->pts[u].y * unit + 0.5;
+				// Adding 0.5 ensures the coordinates are rounded to dbu properly.
+			}
+			gds_elem_t *elem = gds_elem_create_path(layer_id, type_id, line->num_pts, xy);
+			gds_struct_add_elem(str, elem);
+		}
+
+		// Shapes
+		for (size_t z = 0, zn = phx_layer_get_num_shapes(layer); z < zn; ++z) {
+			phx_shape_t *shape = phx_layer_get_shape(layer, z);
+			gds_xy_t xy[shape->num_pts+1];
+			for (uint16_t u = 0; u < shape->num_pts; ++u) {
+				xy[u].x = shape->pts[u].x * unit + 0.5;
+				xy[u].y = shape->pts[u].y * unit + 0.5;
+				// Adding 0.5 ensures the coordinates are rounded to dbu properly.
+			}
+			xy[shape->num_pts] = xy[0];
+			gds_elem_t *elem = gds_elem_create_boundary(layer_id, type_id, shape->num_pts+1, xy);
+			gds_struct_add_elem(str, elem);
+		}
+	}
+
+	for (unsigned u = 0; u < cell->insts.size; ++u) {
+		phx_inst_t *inst = array_at(cell->insts, phx_inst_t*, u);
+		gds_elem_t *elem = gds_elem_create_sref(inst->cell->name, (gds_xy_t){inst->pos.x*unit+0.5, inst->pos.y*unit+0.5});
+
+		// Apply the transformations.
+		gds_strans_t strans = gds_elem_get_strans(elem);
+		if (inst->orientation & PHX_MIRROR_Y) {
+			strans.flags ^= GDS_STRANS_REFLECTION;
+		}
+		if (inst->orientation & PHX_MIRROR_X) {
+			strans.flags ^= GDS_STRANS_REFLECTION;
+			strans.angle += 180;
+		}
+		if (inst->orientation & PHX_ROTATE_90) {
+			strans.angle += 90;
+		}
+		gds_elem_set_strans(elem, strans);
+		gds_struct_add_elem(str, elem);
+	}
+
+	return str;
+}
+
+
+static void
+skip_whitespace(char **ptr) {
+	while (**ptr == ' ' || **ptr == '\t' || **ptr == '\n' || **ptr == '\r')
+		++*ptr;
+}
+
+static void
+load_tech_layer_map(phx_tech_t *tech, const char *filename) {
+	assert(tech);
+
+	FILE *f = fopen(filename, "r");
+	if (!f) {
+		fprintf(stderr, "Unable to open layer map file %s, %s\n", filename, strerror(errno));
+		exit(1);
+	}
+
+	while (!feof(f)) {
+		char line[1024];
+		fgets(line, sizeof(line), f);
+		char *ptr = line;
+
+		// Skip whitespace and comments.
+		skip_whitespace(&ptr);
+		if (*ptr == '#')
+			continue;
+
+		// Parse line.
+		char *start;
+		start = ptr;
+		while (*ptr > 0x20) ++ptr;
+		char *name = dupstrn(start, ptr-start);
+		skip_whitespace(&ptr);
+		start = ptr;
+		while (*ptr > 0x20) ++ptr;
+		char *type = dupstrn(start, ptr-start);
+
+		skip_whitespace(&ptr);
+		unsigned long int layer_id = strtoul(ptr, &ptr, 10);
+		skip_whitespace(&ptr);
+		unsigned long int type_id  = strtoul(ptr, &ptr, 10);\
+
+		if (strlen(name) > 0 && layer_id < (1 << 16) && type_id < (1 << 16)) {
+			phx_tech_layer_t *layer = phx_tech_find_layer_name(tech, name, true);
+			phx_tech_layer_set_id(layer, layer_id << 16 | type_id);
+		}
+
+		free(name);
+		free(type);
 	}
 }
 
@@ -438,6 +638,10 @@ int
 main(int argc, char **argv) {
 	int res;
 	int i;
+
+	// Create a technology library for UMC65.
+	phx_tech_t *tech = phx_tech_create();
+	load_tech_layer_map(tech, "/home/msc16f2/umc65/encounter/tech/streamOut_noObs.map");
 
 	// Create a new library into which cells shall be laoded.
 	library_t *lib = new_library();
@@ -457,7 +661,7 @@ main(int argc, char **argv) {
 				printf("Unable to read LEF file %s: %s\n", arg, errstr(res));
 				return 1;
 			}
-			load_lef(lib, in);
+			load_lef(lib, in, tech);
 			printf("Loaded %u cells from %s\n", (unsigned)lef_get_num_macros(in), arg);
 			lef_free(in);
 		}
@@ -470,10 +674,29 @@ main(int argc, char **argv) {
 				return 1;
 			}
 			if (in) {
-				load_lib(lib, in);
+				load_lib(lib, in, tech);
 				printf("Loaded %u cells from %s\n", (unsigned)lib_get_num_cells(in), arg);
 				lib_free(in);
 			}
+		}
+
+		else if (strcasecmp(suffix, "gds") == 0) {
+			gds_lib_t *in;
+			gds_reader_t *rd;
+			res = gds_reader_open_file(&rd, arg, 0);
+			if (res != GDS_OK) {
+				fprintf(stderr, "Unable to open GDS file %s: %s\n", arg, gds_errstr(res));
+				return 1;
+			}
+			res = gds_lib_read(&in, rd);
+			if (res != GDS_OK) {
+				fprintf(stderr, "Unable to read GDS file %s: %s\n", arg, gds_errstr(res));
+				return 1;
+			}
+			gds_reader_close(rd);
+			load_gds(lib, in, tech);
+			printf("Loaded %u cells from %s\n", (unsigned)gds_lib_get_num_structs(in), arg);
+			gds_lib_destroy(in);
 		}
 	}
 
@@ -483,6 +706,16 @@ main(int argc, char **argv) {
 	plot_cell_as_pdf(get_cell(lib, "NR2M0R"), "debug_NR2M0R.pdf");
 
 	// Assemble the bit slice cells.
+	struct gds_lib *gds_lib = gds_lib_create();
+	gds_lib_set_name(gds_lib, "debug");
+	gds_lib_set_version(gds_lib, GDS_VERSION_6);
+
+	gds_lib_add_struct(gds_lib, phx_cell_get_gds(get_cell(lib, "BS1")));
+	gds_lib_add_struct(gds_lib, phx_cell_get_gds(get_cell(lib, "ND2M0R")));
+	gds_lib_add_struct(gds_lib, phx_cell_get_gds(get_cell(lib, "NR2M0R")));
+
+	phx_tech_layer_t *L_ME1 = phx_tech_find_layer_name(tech, "ME1", true);
+
 	for (unsigned u = 1; u < 3; ++u) {
 		unsigned N = 1 << u;
 		unsigned Nh = 1 << (u-1);
@@ -501,17 +734,28 @@ main(int argc, char **argv) {
 		phx_inst_t *i0 = new_inst(cell, inner, "I0");
 		phx_inst_t *i1 = new_inst(cell, inner, "I1");
 		inst_set_pos(i0, (vec2_t){0, 0});
-		inst_set_pos(i1, (vec2_t){0, Nh*1.8e-6});
-		phx_inst_set_orientation(i1, PHX_MIRROR_Y);
+		if (u == 1) {
+			inst_set_pos(i1, (vec2_t){0, N*1.8e-6});
+			phx_inst_set_orientation(i1, PHX_MIRROR_Y);
+		} else {
+			inst_set_pos(i1, (vec2_t){0, Nh*1.8e-6});
+		}
 
 		// Create the supply pins.
 		phx_pin_t *pVDD = cell_find_pin(cell, "VDD");
 		phx_pin_t *pVSS = cell_find_pin(cell, "VSS");
-		layer_t *geoVDD = geometry_find_layer(&pVDD->geo, "ME1");
-		layer_t *geoVSS = geometry_find_layer(&pVSS->geo, "ME1");
+		phx_layer_t *geoVDD = phx_geometry_on_layer(&pVDD->geo, L_ME1);
+		phx_layer_t *geoVSS = phx_geometry_on_layer(&pVSS->geo, L_ME1);
 		for (unsigned u = 0; u < N+1; ++u) {
 			double y = u * 1.8e-6;
-			layer_add_shape(u % 2 == 0 ? geoVSS : geoVDD, (vec2_t[]){{0, y - 0.15e-6}, {3e-6, y + 0.15e-6}}, 2);
+			vec2_t pa = {0,    y - 0.15e-6};
+			vec2_t pb = {3e-6, y + 0.15e-6};
+			phx_layer_add_shape(u % 2 == 0 ? geoVSS : geoVDD, 4, (vec2_t[]){
+				{ pa.x, pa.y },
+				{ pb.x, pa.y },
+				{ pb.x, pb.y },
+				{ pa.x, pb.y },
+			});
 		}
 
 		// Copy the input pins of the two inner cells.
@@ -534,8 +778,8 @@ main(int argc, char **argv) {
 				phx_pin_t *dst1 = cell_find_pin(cell, buffer);
 				assert(src && dst0 && dst1);
 
-				copy_geometry(&dst0->geo, i0, &src->geo);
-				copy_geometry(&dst1->geo, i1, &src->geo);
+				phx_inst_copy_geometry_to_parent(i0, &src->geo, &dst0->geo);
+				phx_inst_copy_geometry_to_parent(i1, &src->geo, &dst1->geo);
 
 				connect(cell, dst0, NULL, src, i0);
 				connect(cell, dst1, NULL, src, i1);
@@ -546,21 +790,24 @@ main(int argc, char **argv) {
 		phx_cell_t *cmux = get_cell(lib, u % 2 == 0 ? "NR2M0R" : "ND2M0R");
 		assert(cmux);
 		phx_inst_t *imux = new_inst(cell, cmux, "I2");
-		inst_set_pos(imux, (vec2_t){2.2e-6, (Nh-1)*1.8e-6});
-		if (u > 1)
+		if (u == 1) {
+			inst_set_pos(imux, (vec2_t){2.2e-6, 0});
+		} else {
+			inst_set_pos(imux, (vec2_t){2.2e-6, Nh*1.8e-6});
 			phx_inst_set_orientation(imux, PHX_MIRROR_Y);
+		}
 
 		if (u == 1) {
 			// Connect I1.Z to I2.B
-			umc65_route(cell, (vec2_t){2.7e-6, 0.7e-6}, 1, 1, 3, (struct route_segment[]){
+			umc65_route(cell, tech, (vec2_t){2.7e-6, 0.7e-6}, 1, 1, 3, (struct route_segment[]){
 				{ROUTE_Y, 1.4e-6, 2},
 				{ROUTE_X, 2.1e-6, 3},
 				{ROUTE_Y, 2.8e-6, 2},
 			});
 
 			// Connect I0.Z to I2.A
-			umc65_route(cell, (vec2_t){2.15e-6, 0.8e-6}, 1, 1, 1, (struct route_segment[]){
-				{ROUTE_X, 2.15e-6, 1},
+			umc65_route(cell, tech, (vec2_t){2.2e-6, 0.8e-6}, 1, 1, 1, (struct route_segment[]){
+				{ROUTE_X, 2.2e-6, 1},
 			});
 		} else {
 
@@ -575,7 +822,19 @@ main(int argc, char **argv) {
 		char path[128];
 		snprintf(path, sizeof(path), "debug_%s.pdf", name);
 		plot_cell_as_pdf(cell, path);
+
+		// Add the cell to the GDS lib.
+		gds_struct_t *str = cell_to_gds(cell, gds_lib);
+		gds_lib_add_struct(gds_lib, str);
+		gds_struct_unref(str);
 	}
+
+	// Dump stuff as GDS.
+	struct gds_writer *wr;
+	gds_writer_open_file(&wr, "debug.gds", 0);
+	gds_lib_write(gds_lib, wr);
+	gds_writer_close(wr);
+	gds_lib_destroy(gds_lib);
 
 	// Add some dummy timing tables to the AND2M1R cell.
 	phx_cell_t *AN2M1R = get_cell(lib, "AN2M1R");
@@ -653,18 +912,18 @@ main(int argc, char **argv) {
 	          *pVDD = cell_find_pin(cell, "VDD"),
 	          *pVSS = cell_find_pin(cell, "VSS");
 
-	copy_geometry(&pA->geo, i0, &AN2M1R_pA->geo);
-	copy_geometry(&pB->geo, i0, &AN2M1R_pB->geo);
-	copy_geometry(&pC->geo, i1, &AN2M1R_pA->geo);
-	copy_geometry(&pD->geo, i1, &AN2M1R_pB->geo);
-	copy_geometry(&pZ->geo, i2, &AN2M1R_pZ->geo);
+	phx_inst_copy_geometry_to_parent(i0, &AN2M1R_pA->geo, &pA->geo);
+	phx_inst_copy_geometry_to_parent(i0, &AN2M1R_pB->geo, &pB->geo);
+	phx_inst_copy_geometry_to_parent(i1, &AN2M1R_pA->geo, &pC->geo);
+	phx_inst_copy_geometry_to_parent(i1, &AN2M1R_pB->geo, &pD->geo);
+	phx_inst_copy_geometry_to_parent(i2, &AN2M1R_pZ->geo, &pZ->geo);
 
-	layer_add_shape(geometry_find_layer(&pVDD->geo, "ME1"), (vec2_t[]){
-		{0, 1.65e-6}, {p.x, 1.95e-6}
-	}, 2);
-	layer_add_shape(geometry_find_layer(&pVSS->geo, "ME1"), (vec2_t[]){
-		{0, -0.15e-6}, {p.x, 0.15e-6}
-	}, 2);
+	// layer_add_shape(phx_geometry_find_layer(&pVDD->geo, "ME1"), (vec2_t[]){
+	// 	{0, 1.65e-6}, {p.x, 1.95e-6}
+	// }, 2);
+	// layer_add_shape(phx_geometry_find_layer(&pVSS->geo, "ME1"), (vec2_t[]){
+	// 	{0, -0.15e-6}, {p.x, 0.15e-6}
+	// }, 2);
 
 	// Add the internal connections of the cell.
 	connect(cell, pVDD, NULL, cell_find_pin(AN2M1R, "VDD"), i0);

@@ -10,7 +10,7 @@ static void phx_net_update(phx_net_t*, uint8_t bits);
 
 
 void
-extents_reset(extents_t *ext) {
+extents_reset(phx_extents_t *ext) {
 	assert(ext);
 	ext->min.x =  INFINITY;
 	ext->min.y =  INFINITY;
@@ -19,7 +19,7 @@ extents_reset(extents_t *ext) {
 }
 
 void
-extents_include(extents_t *ext, extents_t *other) {
+extents_include(phx_extents_t *ext, phx_extents_t *other) {
 	if (other->min.x < ext->min.x) ext->min.x = other->min.x;
 	if (other->min.y < ext->min.y) ext->min.y = other->min.y;
 	if (other->max.x > ext->max.x) ext->max.x = other->max.x;
@@ -27,7 +27,7 @@ extents_include(extents_t *ext, extents_t *other) {
 }
 
 void
-extents_add(extents_t *ext, vec2_t v) {
+extents_add(phx_extents_t *ext, vec2_t v) {
 	if (v.x < ext->min.x) ext->min.x = v.x;
 	if (v.y < ext->min.y) ext->min.y = v.y;
 	if (v.x > ext->max.x) ext->max.x = v.x;
@@ -92,7 +92,7 @@ new_cell(library_t *lib, const char *name) {
 	array_init(&cell->pins, sizeof(phx_pin_t*));
 	array_init(&cell->nets, sizeof(phx_net_t*));
 	array_init(&cell->arcs, sizeof(phx_timing_arc_t));
-	geometry_init(&cell->geo);
+	phx_geometry_init(&cell->geo, cell);
 	array_add(&lib->cells, &cell);
 	return cell;
 }
@@ -110,11 +110,13 @@ free_cell(phx_cell_t *cell) {
 		timing_arc_dispose(array_get(&cell->arcs, u));
 	}
 	free(cell->name);
-	geometry_dispose(&cell->geo);
+	phx_geometry_dispose(&cell->geo);
 	array_dispose(&cell->insts);
 	array_dispose(&cell->pins);
 	array_dispose(&cell->nets);
 	array_dispose(&cell->arcs);
+	if (cell->gds)
+		gds_struct_unref(cell->gds);
 	free(cell);
 }
 
@@ -162,7 +164,7 @@ cell_get_inst(phx_cell_t *cell, size_t idx) {
 	return array_at(cell->insts, phx_inst_t*, idx);
 }
 
-geometry_t *
+phx_geometry_t *
 cell_get_geometry(phx_cell_t *cell) {
 	assert(cell);
 	return &cell->geo;
@@ -171,7 +173,7 @@ cell_get_geometry(phx_cell_t *cell) {
 void
 cell_update_extents(phx_cell_t *cell) {
 	assert(cell);
-	geometry_update_extents(&cell->geo);
+	phx_geometry_update(&cell->geo, PHX_EXTENTS);
 	extents_reset(&cell->ext);
 	extents_include(&cell->ext, &cell->geo.ext);
 	for (size_t z = 0; z < cell->insts.size; ++z) {
@@ -181,7 +183,7 @@ cell_update_extents(phx_cell_t *cell) {
 	}
 	for (size_t z = 0; z < cell->pins.size; ++z) {
 		phx_pin_t *pin = array_at(cell->pins, phx_pin_t*, z);
-		geometry_update_extents(&pin->geo);
+		phx_geometry_update(&pin->geo, PHX_EXTENTS);
 		extents_include(&cell->ext, &pin->geo.ext);
 	}
 }
@@ -220,111 +222,16 @@ cell_update_capacitances(phx_cell_t *cell) {
 }
 
 
-
-void
-geometry_init(geometry_t *geo) {
-	assert(geo);
-	array_init(&geo->layers, sizeof(layer_t));
-}
-
-void
-geometry_dispose(geometry_t *geo) {
-	assert(geo);
-	array_dispose(&geo->layers);
-}
-
-layer_t *
-geometry_find_layer(geometry_t *geo, const char *name) {
-	layer_t *layer;
-	assert(geo && name);
-	for (size_t z = 0, zn = geo->layers.size; z < zn; ++z) {
-		layer = array_get(&geo->layers, z);
-		if (strcmp(layer->name, name) == 0)
-			return layer;
-	}
-
-	layer = array_add(&geo->layers, NULL);
-	layer_init(layer, name);
-	return layer;
-}
-
 size_t
-geometry_get_num_layers(geometry_t *geo) {
+geometry_get_num_layers(phx_geometry_t *geo) {
 	assert(geo);
 	return geo->layers.size;
 }
 
-layer_t *
-geometry_get_layer(geometry_t *geo, size_t idx) {
+phx_layer_t *
+geometry_get_layer(phx_geometry_t *geo, size_t idx) {
 	assert(geo && idx < geo->layers.size);
 	return array_get(&geo->layers, idx);
-}
-
-void
-geometry_update_extents(geometry_t *geo) {
-	assert(geo);
-	extents_reset(&geo->ext);
-	for (size_t z = 0; z < geo->layers.size; ++z) {
-		layer_t *layer = array_get(&geo->layers, z);
-		layer_update_extents(layer);
-		extents_include(&geo->ext, &layer->ext);
-	}
-}
-
-
-
-void
-layer_init(layer_t *layer, const char *name) {
-	assert(layer && name);
-	layer->name = dupstr(name);
-	array_init(&layer->shapes, sizeof(shape_t));
-	array_init(&layer->points, sizeof(vec2_t));
-}
-
-void
-layer_dispose(layer_t *layer) {
-	assert(layer);
-	free(layer->name);
-	array_dispose(&layer->shapes);
-	array_dispose(&layer->points);
-}
-
-void
-layer_add_shape(layer_t *layer, vec2_t *points, size_t num_points) {
-	assert(layer && (!num_points || points));
-	shape_t sh = {
-		.pt_begin = layer->points.size,
-		.pt_end   = layer->points.size + num_points,
-	};
-	array_add(&layer->shapes, &sh);
-	array_add_many(&layer->points, points, num_points);
-}
-
-size_t
-layer_get_num_shapes(layer_t *layer) {
-	assert(layer);
-	return layer->shapes.size;
-}
-
-shape_t *
-layer_get_shape(layer_t *layer, size_t idx) {
-	assert(layer && idx < layer->shapes.size);
-	return array_get(&layer->shapes, idx);
-}
-
-vec2_t *
-layer_get_points(layer_t *layer) {
-	assert(layer);
-	return layer->points.items;
-}
-
-void
-layer_update_extents(layer_t *layer) {
-	assert(layer);
-	extents_reset(&layer->ext);
-	for (size_t z = 0; z < layer->points.size; ++z) {
-		extents_add(&layer->ext, array_at(layer->points, vec2_t, z));
-	}
 }
 
 
@@ -368,9 +275,31 @@ inst_get_cell(phx_inst_t *inst) {
 void
 inst_update_extents(phx_inst_t *inst) {
 	assert(inst);
+
+	phx_extents_t ext = inst->cell->ext;
+	if (inst->orientation & PHX_MIRROR_X) {
+		double tmp = ext.min.x;
+		ext.min.x = -ext.max.x;
+		ext.max.x = -tmp;
+	}
+	if (inst->orientation & PHX_MIRROR_Y) {
+		double tmp = ext.min.y;
+		ext.min.y = -ext.max.y;
+		ext.max.y = -tmp;
+	}
+	if (inst->orientation & PHX_ROTATE_90) {
+		double tmp;
+		tmp = ext.min.x;
+		ext.min.x = ext.min.y;
+		ext.max.y = -tmp;
+		tmp = ext.max.x;
+		ext.max.x = ext.max.y;
+		ext.min.y = -tmp;
+	}
+
 	vec2_t off = vec2_sub(inst->pos, inst->cell->origin);
-	inst->ext.min = vec2_add(inst->cell->ext.min, off);
-	inst->ext.max = vec2_add(inst->cell->ext.max, off);
+	inst->ext.min = vec2_add(ext.min, off);
+	inst->ext.max = vec2_add(ext.max, off);
 }
 
 
@@ -381,7 +310,7 @@ new_pin(phx_cell_t *cell, const char *name) {
 	phx_pin_t *pin = calloc(1, sizeof(*cell));
 	pin->cell = cell;
 	pin->name = dupstr(name);
-	geometry_init(&pin->geo);
+	phx_geometry_init(&pin->geo, pin->cell);
 	return pin;
 }
 
@@ -389,7 +318,7 @@ static void
 free_pin(phx_pin_t *pin) {
 	assert(pin);
 	free(pin->name);
-	geometry_dispose(&pin->geo);
+	phx_geometry_dispose(&pin->geo);
 	free(pin);
 }
 

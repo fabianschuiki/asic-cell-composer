@@ -12,7 +12,7 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 message("## phalanx ${CMAKE_BUILD_TYPE} build")
 
-include_directories(/usr/include/cairo /usr/local/include/cairo)
+include_directories(/usr/include/cairo /usr/local/include/cairo ${PROJECT_BINARY_DIR}/deps/libgds)
 
 # Compiler Flags
 include_directories(${PROJECT_SOURCE_DIR}/src ${PROJECT_BINARY_DIR}/src)
@@ -24,11 +24,15 @@ add_library(obj-common OBJECT
 	src/common.c
 	src/util.c
 	src/util-array.c
+	src/util-ptrset.c
 	src/table.c
+	src/tech.c
 )
 add_library(obj-design OBJECT
+	src/cell.c
 	src/design-cell.c
 	src/design-inst.c
+	src/design-geometry.c
 )
 add_library(obj-lef OBJECT
 	src/lef.c
@@ -42,7 +46,6 @@ add_library(obj-lib OBJECT
 
 # Executable
 add_executable(phalanx
-	src/cell.c
 	src/main.c
 	$<TARGET_OBJECTS:obj-common>
 	$<TARGET_OBJECTS:obj-design>

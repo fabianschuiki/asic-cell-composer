@@ -4,9 +4,13 @@
 
 
 typedef struct array array_t;
+typedef struct ptrset ptrset_t;
 
 
 /**
+ * @defgroup array Dynamic Array
+ * @{
+ *
  * A dynamic array.
  */
 struct array {
@@ -48,6 +52,30 @@ void array_clear(array_t *self);
 #define array_at(arr, type, index) (((type*)(arr).items)[index])
 
 void *array_bsearch(array_t *self, const void *key, int (*compare)(const void*, const void*), unsigned *pos);
+/** @} */
+
+
+/**
+ * @defgroup ptrset Pointer Set
+ * @{
+ */
+struct ptrset {
+	/// The number of pointers in the set.
+	size_t size;
+	/// The maximum number of pointers the set can hold before it needs to be
+	/// reallocated.
+	size_t capacity;
+	/// The pointers in the set, in ascending order.
+	void **items;
+};
+
+void ptrset_init(ptrset_t*);
+void ptrset_dispose(ptrset_t*);
+bool ptrset_add(ptrset_t*, void*);
+bool ptrset_remove(ptrset_t*, void*);
+bool ptrset_contains(ptrset_t*, void*);
+/** @} */
+
 
 
 /* String and memory duplication */
