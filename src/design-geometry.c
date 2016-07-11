@@ -71,12 +71,12 @@ static void
 phx_geometry_update_extents(phx_geometry_t *geo) {
 	assert(geo);
 	geo->invalid &= ~PHX_EXTENTS;
-	extents_reset(&geo->ext);
+	phx_extents_reset(&geo->ext);
 
 	for (size_t z = 0; z < geo->layers.size; ++z) {
 		phx_layer_t *layer = array_get(&geo->layers, z);
 		phx_layer_update(layer, PHX_EXTENTS);
-		extents_include(&geo->ext, &layer->ext);
+		phx_extents_include(&geo->ext, &layer->ext);
 	}
 }
 
@@ -86,6 +86,20 @@ phx_geometry_update(phx_geometry_t *geo, uint8_t bits) {
 	assert(geo);
 	if (geo->invalid & bits & PHX_EXTENTS)
 		phx_geometry_update_extents(geo);
+}
+
+
+unsigned
+phx_geometry_get_num_layers(phx_geometry_t *geo) {
+	assert(geo);
+	return geo->layers.size;
+}
+
+
+phx_layer_t *
+phx_geometry_get_layer(phx_geometry_t *geo, unsigned idx) {
+	assert(geo && idx < geo->layers.size);
+	return array_get(&geo->layers, idx);
 }
 
 
@@ -184,7 +198,7 @@ static void
 phx_layer_update_extents(phx_layer_t *layer) {
 	assert(layer);
 	layer->invalid &= ~PHX_EXTENTS;
-	extents_reset(&layer->ext);
+	phx_extents_reset(&layer->ext);
 
 	// Lines
 	for (size_t z = 0; z < layer->lines.size; ++z) {
@@ -192,8 +206,8 @@ phx_layer_update_extents(phx_layer_t *layer) {
 		double hw = line->width / 2;
 		for (size_t z = 0; z < line->num_pts; ++z) {
 			vec2_t pt = line->pts[z];
-			extents_add(&layer->ext, (vec2_t){ pt.x - hw, pt.y - hw });
-			extents_add(&layer->ext, (vec2_t){ pt.x + hw, pt.y + hw });
+			phx_extents_add(&layer->ext, (vec2_t){ pt.x - hw, pt.y - hw });
+			phx_extents_add(&layer->ext, (vec2_t){ pt.x + hw, pt.y + hw });
 		}
 	}
 
@@ -201,7 +215,7 @@ phx_layer_update_extents(phx_layer_t *layer) {
 	for (size_t z = 0; z < layer->shapes.size; ++z) {
 		phx_shape_t *shape = array_at(layer->shapes, phx_shape_t*, z);
 		for (size_t z = 0; z < shape->num_pts; ++z) {
-			extents_add(&layer->ext, shape->pts[z]);
+			phx_extents_add(&layer->ext, shape->pts[z]);
 		}
 	}
 }
@@ -212,4 +226,11 @@ phx_layer_update(phx_layer_t *layer, uint8_t bits) {
 	assert(layer);
 	if (layer->invalid & bits & PHX_EXTENTS)
 		phx_layer_update_extents(layer);
+}
+
+
+phx_tech_layer_t *
+phx_layer_get_tech(phx_layer_t *layer) {
+	assert(layer);
+	return layer->tech;
 }

@@ -131,88 +131,6 @@ lef_add_macro(lef_t *lef, lef_macro_t *macro) {
 
 
 /**
- * Create an empty macro with a given name.
- */
-lef_macro_t *
-lef_new_macro(const char *name) {
-	lef_macro_t *macro;
-	assert(name);
-	macro = calloc(1, sizeof(*macro));
-	macro->name = dupstr(name);
-	array_init(&macro->pins, sizeof(lef_phx_pin_t*));
-	array_init(&macro->obs, sizeof(lef_geo_t*));
-	return macro;
-}
-
-/**
- * Destroy a macro.
- */
-void
-lef_free_macro(lef_macro_t *macro) {
-	size_t z;
-	assert(macro);
-	for (z = 0; z < macro->pins.size; ++z) {
-		lef_free_pin(array_at(macro->pins, lef_phx_pin_t*, z));
-	}
-	if (macro->name) {
-		free(macro->name);
-	}
-	array_dispose(&macro->pins);
-	array_dispose(&macro->obs);
-	free(macro);
-}
-
-/**
- * Add a pin to a macro.
- */
-void
-lef_macro_add_pin(lef_macro_t *macro, lef_phx_pin_t *pin) {
-	assert(macro && pin);
-	array_add(&macro->pins, &pin);
-}
-
-/**
- * Add an obstruction to a macro.
- */
-void
-lef_macro_add_obs(lef_macro_t *macro, lef_geo_t *obs) {
-	assert(macro && obs);
-	array_add(&macro->obs, &obs);
-}
-
-/**
- * Get the name of a macro.
- */
-const char *
-lef_macro_get_name(lef_macro_t *macro) {
-	assert(macro);
-	return macro->name;
-}
-
-/**
- * Get the size of a macro.
- */
-lef_xy_t
-lef_macro_get_size(lef_macro_t *macro) {
-	assert(macro);
-	return macro->size;
-}
-
-size_t
-lef_macro_get_num_pins(lef_macro_t *macro) {
-	assert(macro);
-	return macro->pins.size;
-}
-
-lef_phx_pin_t *
-lef_macro_get_pin(lef_macro_t *macro, size_t idx) {
-	assert(macro && idx < macro->pins.size);
-	return array_at(macro->pins, lef_phx_pin_t*, idx);
-}
-
-
-
-/**
  * Create a new pin with a given name.
  */
 struct lef_pin *
@@ -245,25 +163,25 @@ lef_free_pin(struct lef_pin *pin) {
  * Add a port to a pin.
  */
 void
-lef_pin_add_port(lef_phx_pin_t *pin, lef_port_t *port) {
+lef_pin_add_port(lef_pin_t *pin, lef_port_t *port) {
 	assert(pin && port);
 	array_add(&pin->ports, &port);
 }
 
 size_t
-lef_pin_get_num_ports(lef_phx_pin_t *pin) {
+lef_pin_get_num_ports(lef_pin_t *pin) {
 	assert(pin);
 	return pin->ports.size;
 }
 
 lef_port_t *
-lef_pin_get_port(lef_phx_pin_t *pin, size_t idx) {
+lef_pin_get_port(lef_pin_t *pin, size_t idx) {
 	assert(pin && idx < pin->ports.size);
 	return array_at(pin->ports, lef_port_t*, idx);
 }
 
 const char *
-lef_pin_get_name(lef_phx_pin_t *pin) {
+lef_pin_get_name(lef_pin_t *pin) {
 	assert(pin);
 	return pin->name;
 }
@@ -316,10 +234,11 @@ lef_port_get_geo(lef_port_t *port, size_t idx) {
  * Create new layer geometry.
  */
 lef_geo_layer_t *
-lef_new_geo_layer() {
+lef_new_geo_layer(const char *name) {
 	lef_geo_layer_t *layer;
 	layer = calloc(1, sizeof(*layer));
 	layer->geo.kind = LEF_GEO_LAYER;
+	layer->layer = dupstr(name);
 	array_init(&layer->shapes, sizeof(lef_geo_shape_t*));
 	return layer;
 }
@@ -960,8 +879,7 @@ parse_port_layer(struct lef_lexer *lex, const char *name, void *into, void **arg
 	lef_port_t *port = into;
 	lef_geo_layer_t *layer;
 
-	layer = lef_new_geo_layer();
-	layer->layer = dupstr(name);
+	layer = lef_new_geo_layer(name);
 
 	array_add(&port->geos, &layer);
 	port->last_layer = layer;
@@ -1228,7 +1146,7 @@ parse(struct lef_lexer *lex, struct lef *lef) {
 
 
 int
-read_lef_file(const char *path, lef_t **out) {
+lef_read(lef_t **out, const char *path) {
 	void *ptr;
 	size_t len;
 	int result = PHALANX_OK, fd, err;

@@ -10,7 +10,7 @@ static void phx_net_update(phx_net_t*, uint8_t bits);
 
 
 void
-extents_reset(phx_extents_t *ext) {
+phx_extents_reset(phx_extents_t *ext) {
 	assert(ext);
 	ext->min.x =  INFINITY;
 	ext->min.y =  INFINITY;
@@ -19,7 +19,7 @@ extents_reset(phx_extents_t *ext) {
 }
 
 void
-extents_include(phx_extents_t *ext, phx_extents_t *other) {
+phx_extents_include(phx_extents_t *ext, phx_extents_t *other) {
 	if (other->min.x < ext->min.x) ext->min.x = other->min.x;
 	if (other->min.y < ext->min.y) ext->min.y = other->min.y;
 	if (other->max.x > ext->max.x) ext->max.x = other->max.x;
@@ -27,7 +27,7 @@ extents_include(phx_extents_t *ext, phx_extents_t *other) {
 }
 
 void
-extents_add(phx_extents_t *ext, vec2_t v) {
+phx_extents_add(phx_extents_t *ext, vec2_t v) {
 	if (v.x < ext->min.x) ext->min.x = v.x;
 	if (v.y < ext->min.y) ext->min.y = v.y;
 	if (v.x > ext->max.x) ext->max.x = v.x;
@@ -115,51 +115,51 @@ free_cell(phx_cell_t *cell) {
 }
 
 const char *
-cell_get_name(phx_cell_t *cell) {
+phx_cell_get_name(phx_cell_t *cell) {
 	assert(cell);
 	return cell->name;
 }
 
 void
-cell_set_origin(phx_cell_t *cell, vec2_t o) {
+phx_cell_set_origin(phx_cell_t *cell, vec2_t o) {
 	assert(cell);
 	cell->origin = o;
 	/// @todo update_extents(cell);
 }
 
 void
-cell_set_size(phx_cell_t *cell, vec2_t sz) {
+phx_cell_set_size(phx_cell_t *cell, vec2_t sz) {
 	assert(cell);
 	cell->size = sz;
 	/// @todo update_extents(cell);
 }
 
 vec2_t
-cell_get_origin(phx_cell_t *cell) {
+phx_cell_get_origin(phx_cell_t *cell) {
 	assert(cell);
 	return cell->origin;
 }
 
 vec2_t
-cell_get_size(phx_cell_t *cell) {
+phx_cell_get_size(phx_cell_t *cell) {
 	assert(cell);
 	return cell->size;
 }
 
 size_t
-cell_get_num_insts(phx_cell_t *cell) {
+phx_cell_get_num_insts(phx_cell_t *cell) {
 	assert(cell);
 	return cell->insts.size;
 }
 
 phx_inst_t *
-cell_get_inst(phx_cell_t *cell, size_t idx) {
+phx_cell_get_inst(phx_cell_t *cell, size_t idx) {
 	assert(cell && idx < cell->insts.size);
 	return array_at(cell->insts, phx_inst_t*, idx);
 }
 
 phx_geometry_t *
-cell_get_geometry(phx_cell_t *cell) {
+phx_cell_get_geometry(phx_cell_t *cell) {
 	assert(cell);
 	return &cell->geo;
 }
@@ -168,17 +168,17 @@ void
 cell_update_extents(phx_cell_t *cell) {
 	assert(cell);
 	phx_geometry_update(&cell->geo, PHX_EXTENTS);
-	extents_reset(&cell->ext);
-	extents_include(&cell->ext, &cell->geo.ext);
+	phx_extents_reset(&cell->ext);
+	phx_extents_include(&cell->ext, &cell->geo.ext);
 	for (size_t z = 0; z < cell->insts.size; ++z) {
 		phx_inst_t *inst = array_at(cell->insts, phx_inst_t*, z);
 		inst_update_extents(inst);
-		extents_include(&cell->ext, &inst->ext);
+		phx_extents_include(&cell->ext, &inst->ext);
 	}
 	for (size_t z = 0; z < cell->pins.size; ++z) {
 		phx_pin_t *pin = array_at(cell->pins, phx_pin_t*, z);
 		phx_geometry_update(&pin->geo, PHX_EXTENTS);
-		extents_include(&cell->ext, &pin->geo.ext);
+		phx_extents_include(&cell->ext, &pin->geo.ext);
 	}
 }
 
@@ -214,20 +214,6 @@ cell_update_capacitances(phx_cell_t *cell) {
 		net->capacitance = c;
 	}
 }
-
-
-size_t
-geometry_get_num_layers(phx_geometry_t *geo) {
-	assert(geo);
-	return geo->layers.size;
-}
-
-phx_layer_t *
-geometry_get_layer(phx_geometry_t *geo, size_t idx) {
-	assert(geo && idx < geo->layers.size);
-	return array_get(&geo->layers, idx);
-}
-
 
 
 phx_inst_t *
@@ -332,7 +318,7 @@ compare_timing_arcs(phx_timing_arc_t *a, phx_timing_arc_t *b) {
  * Obtains a timing arc from a cell. Creates the arc if it does not yet exist.
  */
 static phx_timing_arc_t *
-cell_get_timing_arc(phx_cell_t *cell, phx_pin_t *pin, phx_pin_t *related_pin) {
+phx_cell_get_timing_arc(phx_cell_t *cell, phx_pin_t *pin, phx_pin_t *related_pin) {
 	assert(cell && pin);
 	unsigned idx;
 	phx_timing_arc_t key = { .pin = pin, .related_pin = related_pin };
@@ -350,7 +336,7 @@ cell_get_timing_arc(phx_cell_t *cell, phx_pin_t *pin, phx_pin_t *related_pin) {
 void
 phx_cell_set_timing_table(phx_cell_t *cell, phx_pin_t *pin, phx_pin_t *related_pin, phx_timing_type_t type, phx_table_t *table) {
 	assert(cell && pin && table);
-	phx_timing_arc_t *arc = cell_get_timing_arc(cell, pin, related_pin);
+	phx_timing_arc_t *arc = phx_cell_get_timing_arc(cell, pin, related_pin);
 	phx_table_t **slot;
 	switch (type) {
 		case PHX_TIM_DELAY: slot = &arc->delay; break;

@@ -11,6 +11,9 @@
 #include <gds.h>
 
 
+lef_macro_t *phx_make_lef_macro_from_cell(phx_cell_t*);
+
+
 static void
 dump_cell_nets(phx_cell_t *cell, FILE *out) {
 	for (size_t z = 0; z < cell->nets.size; ++z) {
@@ -171,9 +174,9 @@ plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
 	// Calculate the extents of the cell and determine a transformation matrix
 	// for all metric coordinates.
 	phx_extents_t ext = cell->ext;
-	extents_add(&ext, VEC2(0,0));
-	extents_add(&ext, cell_get_origin(cell));
-	extents_add(&ext, cell_get_size(cell));
+	phx_extents_add(&ext, VEC2(0,0));
+	phx_extents_add(&ext, phx_cell_get_origin(cell));
+	phx_extents_add(&ext, phx_cell_get_size(cell));
 	vec2_t d0 = ext.min, d1 = ext.max;
 	mat3_t M = mat3_scale(scale);
 	M.v[1][1] *= -1; // flip along y
@@ -196,7 +199,7 @@ plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
 
 	// Draw the origin lines of the grid.
 	cairo_save(cr);
-	vec2_t p_orig = mat3_mul_vec2(M, cell_get_origin(cell));
+	vec2_t p_orig = mat3_mul_vec2(M, phx_cell_get_origin(cell));
 	cairo_move_to(cr, p0.x, 0);
 	cairo_line_to(cr, p1.x, 0);
 	cairo_move_to(cr, 0, p0.y);
@@ -226,7 +229,7 @@ plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
 
 	// Draw the cell origin and size.
 	vec2_t box0 = mat3_mul_vec2(M, VEC2(0,0));
-	vec2_t box1 = mat3_mul_vec2(M, cell_get_size(cell));
+	vec2_t box1 = mat3_mul_vec2(M, phx_cell_get_size(cell));
 	cairo_set_source_rgb(cr, 0, 0, 0);
 	cairo_set_dash(cr, (double[]){3.0, 2.0}, 2, 0);
 	cairo_rectangle(cr, box0.x, box0.y, box1.x-box0.x, box1.y-box0.y);
@@ -236,16 +239,16 @@ plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
 	// Draw the cell name.
 	cairo_move_to(cr, p0.x+15, p0.y+15);
 	cairo_set_source_rgb(cr, 0, 0, 0);
-	cairo_show_text(cr, cell_get_name(cell));
+	cairo_show_text(cr, phx_cell_get_name(cell));
 
 	// Draw the instances in the cell.
 	cairo_save(cr);
 	cairo_set_line_width(cr, 0.5);
-	for (size_t z = 0, zn = cell_get_num_insts(cell); z < zn; ++z) {
-		phx_inst_t *inst = cell_get_inst(cell, z);
+	for (size_t z = 0, zn = phx_cell_get_num_insts(cell); z < zn; ++z) {
+		phx_inst_t *inst = phx_cell_get_inst(cell, z);
 		phx_cell_t *subcell = inst_get_cell(inst);
 		vec2_t box0 = mat3_mul_vec2(M, inst_get_pos(inst));
-		vec2_t sz = cell_get_size(subcell);
+		vec2_t sz = phx_cell_get_size(subcell);
 		if (inst->orientation & PHX_MIRROR_X) sz.x *= -1;
 		if (inst->orientation & PHX_MIRROR_Y) sz.y *= -1;
 		if (inst->orientation & PHX_ROTATE_90) {
@@ -262,9 +265,9 @@ plot_cell_as_pdf(phx_cell_t *cell, const char *filename) {
 		// cairo_line_to(cr, box1.x, box0.y);
 		// cairo_move_to(cr, box0.x, box0.y);
 		// cairo_line_to(cr, box1.x, box1.y);
-		cairo_text_extents(cr, cell_get_name(subcell), &extents);
+		cairo_text_extents(cr, phx_cell_get_name(subcell), &extents);
 		cairo_move_to(cr, (box0.x+box1.x-extents.width)/2, (box0.y+box1.y+extents.height)/2);
-		cairo_show_text(cr, cell_get_name(subcell));
+		cairo_show_text(cr, phx_cell_get_name(subcell));
 		cairo_stroke(cr);
 	}
 	cairo_restore(cr);
@@ -310,10 +313,10 @@ load_lef(phx_library_t *into, lef_t *lef, phx_tech_t *tech) {
 		lef_macro_t *macro = lef_get_macro(lef,z);
 		phx_cell_t *cell = phx_library_find_cell(into, lef_macro_get_name(macro), true);
 		lef_xy_t xy = lef_macro_get_size(macro);
-		cell_set_size(cell, VEC2(xy.x*1e-6, xy.y*1e-6));
+		phx_cell_set_size(cell, VEC2(xy.x*1e-6, xy.y*1e-6));
 
 		for (size_t y = 0, yn = lef_macro_get_num_pins(macro); y < yn; ++y) {
-			lef_phx_pin_t *src_pin = lef_macro_get_pin(macro, y);
+			lef_pin_t *src_pin = lef_macro_get_pin(macro, y);
 			phx_pin_t *dst_pin = cell_find_pin(cell, lef_pin_get_name(src_pin));
 			phx_geometry_t *dst_geo = &dst_pin->geo;
 
@@ -656,7 +659,7 @@ main(int argc, char **argv) {
 
 		if (strcasecmp(suffix, "lef") == 0) {
 			lef_t *in;
-			res = read_lef_file(arg, &in);
+			res = lef_read(&in, arg);
 			if (res != PHALANX_OK) {
 				printf("Unable to read LEF file %s: %s\n", arg, errstr(res));
 				return 1;
@@ -706,13 +709,15 @@ main(int argc, char **argv) {
 	plot_cell_as_pdf(phx_library_find_cell(lib, "NR2M0R", false), "debug_NR2M0R.pdf");
 
 	// Assemble the bit slice cells.
-	struct gds_lib *gds_lib = gds_lib_create();
+	gds_lib_t *gds_lib = gds_lib_create();
 	gds_lib_set_name(gds_lib, "debug");
 	gds_lib_set_version(gds_lib, GDS_VERSION_6);
 
 	gds_lib_add_struct(gds_lib, phx_cell_get_gds(phx_library_find_cell(lib, "BS1", false)));
 	gds_lib_add_struct(gds_lib, phx_cell_get_gds(phx_library_find_cell(lib, "ND2M0R", false)));
 	gds_lib_add_struct(gds_lib, phx_cell_get_gds(phx_library_find_cell(lib, "NR2M0R", false)));
+
+	lef_t *lef = lef_new();
 
 	phx_tech_layer_t *L_ME1 = phx_tech_find_layer_name(tech, "ME1", true);
 
@@ -724,7 +729,7 @@ main(int argc, char **argv) {
 		printf("Assembling %s\n", name);
 
 		phx_cell_t *cell = new_cell(lib, name);
-		cell_set_size(cell, (vec2_t){3e-6, N*1.8e-6});
+		phx_cell_set_size(cell, (vec2_t){3e-6, N*1.8e-6});
 
 		// Instantiate the two inner cells.
 		char inner_name[32];
@@ -856,9 +861,9 @@ main(int argc, char **argv) {
 		}
 
 		// Plot the cell for debugging purposes.
-		cell_update_extents(cell);
 		cell_update_capacitances(cell);
 		cell_update_timing_arcs(cell);
+		cell_update_extents(cell);
 
 		dump_cell_nets(cell, stdout);
 		char path[128];
@@ -869,14 +874,22 @@ main(int argc, char **argv) {
 		gds_struct_t *str = cell_to_gds(cell, gds_lib);
 		gds_lib_add_struct(gds_lib, str);
 		gds_struct_unref(str);
+
+		// Add the cell to the LEF file.
+		lef_macro_t *macro = phx_make_lef_macro_from_cell(cell);
+		lef_add_macro(lef, macro);
 	}
 
-	// Dump stuff as GDS.
-	struct gds_writer *wr;
+	// Write the GDS file.
+	gds_writer_t *wr;
 	gds_writer_open_file(&wr, "debug.gds", 0);
 	gds_lib_write(gds_lib, wr);
 	gds_writer_close(wr);
 	gds_lib_destroy(gds_lib);
+
+	// Write the LEF file.
+	lef_write(lef, "debug.lef");
+	lef_free(lef);
 
 	// Add some dummy timing tables to the AND2M1R cell.
 	phx_cell_t *AN2M1R = phx_library_find_cell(lib, "AN2M1R", false);
@@ -927,7 +940,7 @@ main(int argc, char **argv) {
 
 	// Create a new cell.
 	phx_cell_t *cell = new_cell(lib, "AND4");
-	vec2_t AN2M1R_sz = cell_get_size(AN2M1R);
+	vec2_t AN2M1R_sz = phx_cell_get_size(AN2M1R);
 
 	phx_inst_t *i0 = new_inst(cell, AN2M1R, "I0");
 	phx_inst_t *i1 = new_inst(cell, AN2M1R, "I1");
@@ -942,8 +955,8 @@ main(int argc, char **argv) {
 	inst_set_pos(i2, p);
 	p.x += AN2M1R_sz.x;
 	p.y += AN2M1R_sz.y;
-	cell_set_size(cell, p);
-	// cell_set_origin(cell, VEC2(-0.2e-6, -0.2e-6));
+	phx_cell_set_size(cell, p);
+	// phx_cell_set_origin(cell, VEC2(-0.2e-6, -0.2e-6));
 
 	// Add the pins.
 	phx_pin_t *pA   = cell_find_pin(cell, "A"),

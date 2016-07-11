@@ -17,6 +17,9 @@ phx_cell_invalidate(phx_cell_t *cell, uint8_t mask) {
 }
 
 
+/**
+ * Set the GDS structure associated with this cell.
+ */
 void
 phx_cell_set_gds(phx_cell_t *cell, gds_struct_t *gds) {
 	assert(cell);
@@ -27,8 +30,40 @@ phx_cell_set_gds(phx_cell_t *cell, gds_struct_t *gds) {
 	}
 }
 
+
+/**
+ * Get the GDS structure associated with this cell.
+ */
 gds_struct_t *
 phx_cell_get_gds(phx_cell_t *cell) {
 	assert(cell);
 	return cell->gds;
+}
+
+
+unsigned
+phx_cell_get_num_pins(phx_cell_t *cell) {
+	assert(cell);
+	return cell->pins.size;
+}
+
+
+phx_pin_t *
+phx_cell_get_pin(phx_cell_t *cell, unsigned idx) {
+	assert(cell && idx < cell->pins.size);
+	return array_at(cell->pins, phx_pin_t*, idx);
+}
+
+
+const char *
+phx_pin_get_name(phx_pin_t *pin) {
+	assert(pin);
+	return pin->name;
+}
+
+
+phx_geometry_t *
+phx_pin_get_geometry(phx_pin_t *pin) {
+	assert(pin);
+	return &pin->geo;
 }

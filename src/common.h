@@ -69,6 +69,3 @@ vec2_t mat3_mul_vec2(mat3_t m, vec2_t v);
 
 
 const char *errstr(int err);
-
-int read_lib_file(const char *path);
-

@@ -160,37 +160,46 @@ struct phx_timing_arc {
 };
 
 
-void extents_reset(phx_extents_t*);
-void extents_include(phx_extents_t*, phx_extents_t*);
-void extents_add(phx_extents_t*, vec2_t);
+void phx_extents_reset(phx_extents_t*);
+void phx_extents_include(phx_extents_t*, phx_extents_t*);
+void phx_extents_add(phx_extents_t*, vec2_t);
 
+/* Library */
 phx_library_t *phx_library_create(phx_tech_t*);
 void phx_library_destroy(phx_library_t*);
 phx_cell_t *phx_library_find_cell(phx_library_t*, const char*, bool);
 
+/* Cell */
 phx_cell_t *new_cell(phx_library_t*, const char *name);
 void free_cell(phx_cell_t*);
-const char *cell_get_name(phx_cell_t*);
-void cell_set_origin(phx_cell_t*, vec2_t);
-void cell_set_size(phx_cell_t*, vec2_t);
-vec2_t cell_get_origin(phx_cell_t*);
-vec2_t cell_get_size(phx_cell_t*);
-size_t cell_get_num_insts(phx_cell_t*);
-phx_inst_t *cell_get_inst(phx_cell_t*, size_t idx);
-phx_geometry_t *cell_get_geometry(phx_cell_t*);
+const char *phx_cell_get_name(phx_cell_t*);
+void phx_cell_set_origin(phx_cell_t*, vec2_t);
+void phx_cell_set_size(phx_cell_t*, vec2_t);
+vec2_t phx_cell_get_origin(phx_cell_t*);
+vec2_t phx_cell_get_size(phx_cell_t*);
+size_t phx_cell_get_num_insts(phx_cell_t*);
+phx_inst_t *phx_cell_get_inst(phx_cell_t*, size_t idx);
+phx_geometry_t *phx_cell_get_geometry(phx_cell_t*);
 void cell_update_extents(phx_cell_t*);
 phx_pin_t *cell_find_pin(phx_cell_t*, const char *name);
 void cell_update_capacitances(phx_cell_t*);
 void cell_update_timing_arcs(phx_cell_t*);
 void phx_cell_set_gds(phx_cell_t *cell, gds_struct_t *gds);
 gds_struct_t *phx_cell_get_gds(phx_cell_t *cell);
+unsigned phx_cell_get_num_pins(phx_cell_t*);
+phx_pin_t *phx_cell_get_pin(phx_cell_t*, unsigned);
+void phx_cell_set_timing_table(phx_cell_t*, phx_pin_t*, phx_pin_t*, phx_timing_type_t, phx_table_t*);
+
+/* Pin */
+const char *phx_pin_get_name(phx_pin_t*);
+phx_geometry_t *phx_pin_get_geometry(phx_pin_t*);
 
 /* Geometry */
 void phx_geometry_init(phx_geometry_t*, phx_cell_t*);
 void phx_geometry_dispose(phx_geometry_t*);
 phx_layer_t *phx_geometry_on_layer(phx_geometry_t*, phx_tech_layer_t*);
-size_t geometry_get_num_layers(phx_geometry_t*);
-phx_layer_t *geometry_get_layer(phx_geometry_t*, size_t);
+unsigned phx_geometry_get_num_layers(phx_geometry_t*);
+phx_layer_t *phx_geometry_get_layer(phx_geometry_t*, unsigned);
 void phx_geometry_update(phx_geometry_t*, uint8_t);
 
 /* Layer */
@@ -203,6 +212,7 @@ size_t phx_layer_get_num_shapes(phx_layer_t*);
 phx_line_t *phx_layer_get_line(phx_layer_t*, size_t);
 phx_shape_t *phx_layer_get_shape(phx_layer_t*, size_t);
 void phx_layer_update(phx_layer_t*, uint8_t);
+phx_tech_layer_t *phx_layer_get_tech(phx_layer_t*);
 
 /* Instance */
 phx_inst_t *new_inst(phx_cell_t *into, phx_cell_t *cell, const char *name);
@@ -216,5 +226,3 @@ phx_orientation_t phx_inst_get_orientation(phx_inst_t*);
 vec2_t phx_inst_vec_from_parent(phx_inst_t*, vec2_t);
 vec2_t phx_inst_vec_to_parent(phx_inst_t*, vec2_t);
 void phx_inst_copy_geometry_to_parent(phx_inst_t*, phx_geometry_t*, phx_geometry_t*);
-
-void phx_cell_set_timing_table(phx_cell_t*, phx_pin_t*, phx_pin_t*, phx_timing_type_t, phx_table_t*);

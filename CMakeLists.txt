@@ -33,9 +33,12 @@ add_library(obj-design OBJECT
 	src/design-cell.c
 	src/design-inst.c
 	src/design-geometry.c
+	src/fmt-lef.c
 )
 add_library(obj-lef OBJECT
 	src/lef.c
+	src/lef-ast.c
+	src/lef-write.c
 )
 add_library(obj-lib OBJECT
 	src/lib.c
