@@ -12,6 +12,7 @@
 
 
 lef_macro_t *phx_make_lef_macro_from_cell(phx_cell_t*);
+void phx_make_lib_cell(phx_cell_t*, lib_cell_t*);
 
 
 static void
@@ -372,20 +373,69 @@ load_lef(phx_library_t *into, lef_t *lef, phx_tech_t *tech) {
 }
 
 
+static phx_table_t *
+load_lib_table(lib_table_t *src_tbl) {
+	/// @todo Map LIB indices to table axis, create table, done.
+
+	// lib_table_get_num_dimensions(src_tbl);
+	// lib_table_get_dimension(src_tbl, u);
+
+	// lib_table_dim_get_variable(dim);
+	// lib_table_dim_get_num_indices(dim);
+	// lib_table_dim_get_index(dim, u);
+
+	return NULL;
+}
+
+
+static void
+load_lib_timing(phx_pin_t *dst_pin, phx_pin_t *related_pin, lib_timing_t *src_tmg) {
+
+	if (lib_timing_get_type(src_tmg) == (LIB_TMG_TYPE_COMB|LIB_TMG_EDGE_BOTH)) {
+		lib_table_t *tbl;
+		printf("Loading timing %s: %s -> %s\n", dst_pin->cell->name, related_pin->name, dst_pin->name);
+
+		if ((tbl = lib_timing_find_table(src_tmg, LIB_MODEL_CELL_RISE))) {
+			printf("  cell_rise\n");
+			phx_table_t *dst_tbl = load_lib_table(tbl);
+			if (dst_tbl)
+				phx_cell_set_timing_table(dst_pin->cell, dst_pin, related_pin, PHX_TIM_DELAY, dst_tbl);
+		}
+
+		if ((tbl = lib_timing_find_table(src_tmg, LIB_MODEL_TRANSITION_RISE))) {
+			printf("  rise_transition\n");
+			phx_table_t *dst_tbl = load_lib_table(tbl);
+			if (dst_tbl)
+				phx_cell_set_timing_table(dst_pin->cell, dst_pin, related_pin, PHX_TIM_TRANS, dst_tbl);
+		}
+	}
+}
+
+
 static void
 load_lib(phx_library_t *into, lib_t *lib, phx_tech_t *tech) {
 	for (unsigned u = 0, un = lib_get_num_cells(lib); u < un; ++u) {
-		lib_phx_cell_t *src_cell = lib_get_cell(lib, u);
+		lib_cell_t *src_cell = lib_get_cell(lib, u);
 		const char *cell_name = lib_cell_get_name(src_cell);
 		phx_cell_t *dst_cell = phx_library_find_cell(into, cell_name, true);
 
+		dst_cell->leakage_power = lib_cell_get_leakage_power(src_cell);
+
 		for (unsigned u = 0, un = lib_cell_get_num_pins(src_cell); u < un; ++u) {
-			lib_phx_pin_t *src_pin = lib_cell_get_pin(src_cell, u);
+			lib_pin_t *src_pin = lib_cell_get_pin(src_cell, u);
 			const char *pin_name = lib_pin_get_name(src_pin);
 			phx_pin_t *dst_pin = cell_find_pin(dst_cell, pin_name);
 
-			double d = lib_pin_get_capacitance(src_pin);
-			dst_pin->capacitance = d * lib_get_capacitance_unit(lib);
+			dst_pin->capacitance = lib_pin_get_capacitance(src_pin);
+
+			for (unsigned u = 0, un = lib_pin_get_num_timings(src_pin); u < un; ++u) {
+				lib_timing_t *src_tmg = lib_pin_get_timing(src_pin, u);
+				for (unsigned u = 0, un = lib_timing_get_num_related_pins(src_tmg); u < un; ++u) {
+					const char *related_pin_name = lib_timing_get_related_pin(src_tmg, u);
+					phx_pin_t *related_pin = cell_find_pin(dst_cell, related_pin_name);
+					load_lib_timing(dst_pin, related_pin, src_tmg);
+				}
+			}
 		}
 	}
 }
@@ -671,7 +721,7 @@ main(int argc, char **argv) {
 
 		else if (strcasecmp(suffix, "lib") == 0) {
 			lib_t *in;
-			res = lib_read(arg, &in);
+			res = lib_read(&in, arg);
 			if (res != LIB_OK) {
 				printf("Unable to read LIB file %s: %s\n", arg, lib_errstr(res));
 				return 1;
@@ -718,10 +768,12 @@ main(int argc, char **argv) {
 	gds_lib_add_struct(gds_lib, phx_cell_get_gds(phx_library_find_cell(lib, "NR2M0R", false)));
 
 	lef_t *lef = lef_new();
+	lib_t *out_lib = lib_new("debug");
 
 	phx_tech_layer_t *L_ME1 = phx_tech_find_layer_name(tech, "ME1", true);
+	phx_tech_layer_t *L_ME2 = phx_tech_find_layer_name(tech, "ME2", true);
 
-	for (unsigned u = 1; u <= 8; ++u) {
+	for (unsigned u = 1; u <= 2; ++u) {
 		unsigned N = 1 << u;
 		unsigned Nh = 1 << (u-1);
 		char name[32];
@@ -770,7 +822,7 @@ main(int argc, char **argv) {
 			snprintf(bus_lo, sizeof(bus_lo), "[%u]", u);
 			snprintf(bus_hi, sizeof(bus_hi), "[%u]", u + Nh);
 
-			const char *pins[] = {"D", "GP", "GN", "S"};
+			const char *pins[] = {"GP", "GN", "S"};
 			for (unsigned u = 0; u < ASIZE(pins); ++u) {
 				char buffer[128];
 
@@ -790,6 +842,18 @@ main(int argc, char **argv) {
 				connect(cell, dst1, NULL, src, i1);
 			}
 		}
+
+		// Add the data pin.
+		phx_pin_t *pD = cell_find_pin(cell, "D"),
+		          *pInnerD = cell_find_pin(inner, "D");
+		connect(cell, pD, NULL, pInnerD, i0);
+		connect(cell, pD, NULL, pInnerD, i1);
+		phx_layer_add_shape(phx_geometry_on_layer(phx_pin_get_geometry(pD), L_ME2), 4, (vec2_t[]){
+			{ 0.05e-6, 0.75e-6 },
+			{ 0.15e-6, 0.75e-6 },
+			{ 0.15e-6, N*1.8e-6 - 0.75e-6 },
+			{ 0.05e-6, N*1.8e-6 - 0.75e-6 },
+		});
 
 		// Connect the input pins.
 		unsigned D_route_layer = (u == 1 ? 1 : 2);
@@ -864,8 +928,9 @@ main(int argc, char **argv) {
 		cell_update_capacitances(cell);
 		cell_update_timing_arcs(cell);
 		cell_update_extents(cell);
+		phx_cell_update(cell, 0xFF);
 
-		dump_cell_nets(cell, stdout);
+		// dump_cell_nets(cell, stdout);
 		char path[128];
 		snprintf(path, sizeof(path), "debug_%s.pdf", name);
 		plot_cell_as_pdf(cell, path);
@@ -878,6 +943,11 @@ main(int argc, char **argv) {
 		// Add the cell to the LEF file.
 		lef_macro_t *macro = phx_make_lef_macro_from_cell(cell);
 		lef_add_macro(lef, macro);
+
+		// Add the cell to the LIB file.
+		lib_cell_t *lib_cell;
+		lib_add_cell(out_lib, name, &lib_cell);
+		phx_make_lib_cell(cell, lib_cell);
 	}
 
 	// Write the GDS file.
@@ -890,6 +960,10 @@ main(int argc, char **argv) {
 	// Write the LEF file.
 	lef_write(lef, "debug.lef");
 	lef_free(lef);
+
+	// Write the LIB file.
+	lib_write(out_lib, "debug.lib");
+	lib_free(out_lib);
 
 	// Add some dummy timing tables to the AND2M1R cell.
 	phx_cell_t *AN2M1R = phx_library_find_cell(lib, "AN2M1R", false);

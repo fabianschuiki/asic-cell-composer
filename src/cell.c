@@ -82,6 +82,7 @@ new_cell(phx_library_t *lib, const char *name) {
 	phx_cell_t *cell = calloc(1, sizeof(*cell));
 	cell->lib = lib;
 	cell->name = dupstr(name);
+	cell->invalid = PHX_INIT_INVALID;
 	array_init(&cell->insts, sizeof(phx_inst_t*));
 	array_init(&cell->pins, sizeof(phx_pin_t*));
 	array_init(&cell->nets, sizeof(phx_net_t*));
@@ -209,9 +210,15 @@ cell_update_capacitances(phx_cell_t *cell) {
 		double c = 0;
 		for (unsigned u = 0; u < net->conns.size; ++u) {
 			phx_terminal_t *conn = array_get(&net->conns, u);
-			c += conn->pin->capacitance;
+			if (conn->inst != NULL)
+				c += conn->pin->capacitance;
 		}
 		net->capacitance = c;
+		for (unsigned u = 0; u < net->conns.size; ++u) {
+			phx_terminal_t *conn = array_get(&net->conns, u);
+			if (conn->inst == NULL)
+				conn->pin->capacitance = c;
+		}
 	}
 }
 
@@ -223,6 +230,7 @@ new_inst(phx_cell_t *into, phx_cell_t *cell, const char *name) {
 	inst->cell = cell;
 	inst->parent = into;
 	inst->name = dupstr(name);
+	inst->invalid = PHX_INIT_INVALID;
 	array_add(&into->insts, &inst);
 	return inst;
 }
@@ -371,7 +379,7 @@ static void
 cell_update_timing_arcs_inner(phx_cell_t *cell) {
 	assert(cell);
 	cell->flags &= ~PHX_TIMING;
-	printf("Updating timing arcs of cell %s\n", cell->name);
+	// printf("Updating timing arcs of cell %s\n", cell->name);
 
 	// Invalidate the intermediate results for each net.
 	for (unsigned u = 0; u < cell->nets.size; ++u) {
@@ -699,7 +707,7 @@ combine_arcs(phx_net_t *net, phx_net_t *other_net, phx_timing_arc_t *arc, phx_ti
 static void
 phx_net_update_arc_forward(phx_net_t *net, phx_net_t *other_net, phx_timing_arc_t *arc) {
 	assert(net && other_net && arc);
-	printf("Update arc %s -> %s (arc %p)\n", other_net->name, net->name, arc);
+	// printf("Update arc %s -> %s (arc %p)\n", other_net->name, net->name, arc);
 
 	// If the net is not exposed to outside circuitry, the capacitive load is
 	// known and the delay and transition tables can be reduced by fixing the
@@ -730,14 +738,14 @@ phx_net_update_arc_forward(phx_net_t *net, phx_net_t *other_net, phx_timing_arc_
 	// by associating the tables calculated above with the input pin and storing
 	// the arc in the net struct.
 	if (other_net->is_exposed) {
-		printf("Using as initial arc\n");
+		// printf("Using as initial arc\n");
 		phx_timing_arc_t *out_arc = array_add(&net->arcs, NULL);
 		memset(out_arc, 0, sizeof(*out_arc));
 		for (unsigned u = 0; u < other_net->conns.size; ++u) {
 			phx_terminal_t *term = array_get(&other_net->conns, u);
 			if (!term->inst) {
 				assert(!out_arc->related_pin && "Two input pins connected to the same net. What should I do now?");
-				printf("  to pin %s\n", term->pin->name);
+				// printf("  to pin %s\n", term->pin->name);
 				out_arc->related_pin = term->pin;
 			}
 		}
@@ -749,10 +757,10 @@ phx_net_update_arc_forward(phx_net_t *net, phx_net_t *other_net, phx_timing_arc_
 	// If the other net is not attached to an input pin, combine the timing arcs
 	// already established for that net with the tables calculated above.
 	else {
-		printf("Combining with other net\n");
+		// printf("Combining with other net\n");
 		for (unsigned u = 0; u < other_net->arcs.size; ++u) {
 			phx_timing_arc_t *other_arc = array_get(&other_net->arcs, u);
-			printf("  which already has arc to pin %s\n", other_arc->related_pin->name);
+			// printf("  which already has arc to pin %s\n", other_arc->related_pin->name);
 			combine_arcs(net, other_net, arc, other_arc, delay, transition);
 		}
 	}

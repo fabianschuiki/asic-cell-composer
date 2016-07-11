@@ -81,6 +81,9 @@ phx_geometry_update_extents(phx_geometry_t *geo) {
 }
 
 
+/**
+ * Update invalid bits of a geometry.
+ */
 void
 phx_geometry_update(phx_geometry_t *geo, uint8_t bits) {
 	assert(geo);

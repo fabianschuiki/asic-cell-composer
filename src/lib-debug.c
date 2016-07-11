@@ -11,7 +11,7 @@ int main(int argc, char **argv) {
 		int err;
 		printf("Reading %s\n", arg);
 
-		err = lib_read(arg, &lib);
+		err = lib_read(&lib, arg);
 		if (err != LIB_OK) {
 			fprintf(stderr, "Failed to read LIB file %s (error %d)\n", arg, err);
 			++num_failed;

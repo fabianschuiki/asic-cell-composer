@@ -55,6 +55,43 @@ phx_cell_get_pin(phx_cell_t *cell, unsigned idx) {
 }
 
 
+static void
+phx_cell_update_leakage_power(phx_cell_t *cell) {
+	assert(cell);
+	cell->invalid &= ~PHX_POWER_LKG;
+
+	if (cell->insts.size == 0)
+		return;
+
+	double pwr = 0;
+	for (unsigned u = 0; u < cell->insts.size; ++u) {
+		phx_inst_t *inst = array_at(cell->insts, phx_inst_t*, u);
+		phx_cell_update(inst->cell, PHX_POWER_LKG);
+		pwr += inst->cell->leakage_power;
+	}
+	cell->leakage_power = pwr;
+
+	printf("Updated %s leakage power to %g\n", cell->name, cell->leakage_power);
+}
+
+
+void
+phx_cell_update(phx_cell_t *cell, uint8_t bits) {
+	assert(cell);
+	// if (cell->invalid & bits & PHX_EXTENTS)
+	// 	phx_cell_update_extents(cell);
+	if (cell->invalid & bits & PHX_POWER_LKG)
+		phx_cell_update_leakage_power(cell);
+}
+
+
+double
+phx_cell_get_leakage_power(phx_cell_t *cell) {
+	assert(cell);
+	return cell->leakage_power;
+}
+
+
 const char *
 phx_pin_get_name(phx_pin_t *pin) {
 	assert(pin);
@@ -66,4 +103,18 @@ phx_geometry_t *
 phx_pin_get_geometry(phx_pin_t *pin) {
 	assert(pin);
 	return &pin->geo;
+}
+
+
+void
+phx_pin_set_capacitance(phx_pin_t *pin, double capacitance) {
+	assert(pin);
+	pin->capacitance = capacitance;
+}
+
+
+double
+phx_pin_get_capacitance(phx_pin_t *pin) {
+	assert(pin);
+	return pin->capacitance;
 }

@@ -34,6 +34,7 @@ add_library(obj-design OBJECT
 	src/design-inst.c
 	src/design-geometry.c
 	src/fmt-lef.c
+	src/fmt-lib.c
 )
 add_library(obj-lef OBJECT
 	src/lef.c

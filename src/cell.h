@@ -8,9 +8,11 @@
  * Bits of a design that can be invalid.
  */
 enum {
-	PHX_EXTENTS = 1 << 0,
-	PHX_TIMING  = 1 << 1,
-	PHX_INIT_INVALID = PHX_EXTENTS | PHX_TIMING,
+	PHX_EXTENTS   = 1 << 0,
+	PHX_TIMING    = 1 << 1,
+	PHX_POWER_LKG = 1 << 2,
+	PHX_POWER_INT = 1 << 3,
+	PHX_INIT_INVALID = PHX_EXTENTS | PHX_TIMING | PHX_POWER_LKG | PHX_POWER_INT,
 };
 
 struct phx_extents {
@@ -100,6 +102,8 @@ struct phx_cell {
 	array_t arcs; /* phx_timing_arc_t */
 	/// The cell's geometry as loaded from a GDS file.
 	gds_struct_t *gds;
+	/// The leakage power the cell dissipates.
+	double leakage_power;
 };
 
 enum phx_orientation {
@@ -189,10 +193,14 @@ gds_struct_t *phx_cell_get_gds(phx_cell_t *cell);
 unsigned phx_cell_get_num_pins(phx_cell_t*);
 phx_pin_t *phx_cell_get_pin(phx_cell_t*, unsigned);
 void phx_cell_set_timing_table(phx_cell_t*, phx_pin_t*, phx_pin_t*, phx_timing_type_t, phx_table_t*);
+void phx_cell_update(phx_cell_t*, uint8_t);
+double phx_cell_get_leakage_power(phx_cell_t*);
 
 /* Pin */
 const char *phx_pin_get_name(phx_pin_t*);
 phx_geometry_t *phx_pin_get_geometry(phx_pin_t*);
+void phx_pin_set_capacitance(phx_pin_t*, double);
+double phx_pin_get_capacitance(phx_pin_t*);
 
 /* Geometry */
 void phx_geometry_init(phx_geometry_t*, phx_cell_t*);
