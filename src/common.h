@@ -35,6 +35,7 @@ typedef struct phx_table phx_table_t;
 typedef struct phx_table_axis phx_table_axis_t;
 typedef struct phx_table_format phx_table_format_t;
 typedef struct phx_table_lerp phx_table_lerp_t;
+typedef struct phx_table_fix phx_table_fix_t;
 typedef struct phx_tech phx_tech_t;
 typedef struct phx_tech_layer phx_tech_layer_t;
 typedef struct phx_terminal phx_terminal_t;

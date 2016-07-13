@@ -377,14 +377,32 @@ static phx_table_t *
 load_lib_table(lib_table_t *src_tbl) {
 	/// @todo Map LIB indices to table axis, create table, done.
 
-	// lib_table_get_num_dimensions(src_tbl);
-	// lib_table_get_dimension(src_tbl, u);
+	// Create a new table with the same information as the table in the LIB
+	// file.
+	unsigned ndim = lib_table_get_num_dims(src_tbl);
+	phx_table_quantity_t quantities[ndim];
+	uint16_t num_indices[ndim];
 
-	// lib_table_dim_get_variable(dim);
-	// lib_table_dim_get_num_indices(dim);
-	// lib_table_dim_get_index(dim, u);
+	for (unsigned u = 0; u < ndim; ++u) {
+		unsigned var = lib_table_get_variable(src_tbl, u);
+		switch (var) {
+			case LIB_VAR_IN_TRAN: quantities[u] = PHX_TABLE_IN_TRANS; break;
+			case LIB_VAR_OUT_CAP_TOTAL: quantities[u] = PHX_TABLE_OUT_CAP; break;
+			// Unsupported Axis
+			/// @todo Rather than rejecting the entire table, find a way to
+			/// eliminate the unknown column and use the rest of the table as
+			/// is.
+			default: return NULL;
+		}
+		num_indices[u] = lib_table_get_num_indices(src_tbl, u);
+	}
 
-	return NULL;
+	phx_table_t *dst_tbl = phx_table_new(ndim, quantities, num_indices);
+	for (unsigned u = 0; u < ndim; ++u) {
+		phx_table_set_indices(dst_tbl, quantities[u], lib_table_get_indices(src_tbl, u));
+	}
+	memcpy(dst_tbl->data, lib_table_get_values(src_tbl), lib_table_get_num_values(src_tbl) * sizeof(double));
+	return dst_tbl;
 }
 
 
@@ -393,17 +411,17 @@ load_lib_timing(phx_pin_t *dst_pin, phx_pin_t *related_pin, lib_timing_t *src_tm
 
 	if (lib_timing_get_type(src_tmg) == (LIB_TMG_TYPE_COMB|LIB_TMG_EDGE_BOTH)) {
 		lib_table_t *tbl;
-		printf("Loading timing %s: %s -> %s\n", dst_pin->cell->name, related_pin->name, dst_pin->name);
+		// printf("Loading timing %s: %s -> %s\n", dst_pin->cell->name, related_pin->name, dst_pin->name);
 
 		if ((tbl = lib_timing_find_table(src_tmg, LIB_MODEL_CELL_RISE))) {
-			printf("  cell_rise\n");
+			// printf("  cell_rise\n");
 			phx_table_t *dst_tbl = load_lib_table(tbl);
 			if (dst_tbl)
 				phx_cell_set_timing_table(dst_pin->cell, dst_pin, related_pin, PHX_TIM_DELAY, dst_tbl);
 		}
 
 		if ((tbl = lib_timing_find_table(src_tmg, LIB_MODEL_TRANSITION_RISE))) {
-			printf("  rise_transition\n");
+			// printf("  rise_transition\n");
 			phx_table_t *dst_tbl = load_lib_table(tbl);
 			if (dst_tbl)
 				phx_cell_set_timing_table(dst_pin->cell, dst_pin, related_pin, PHX_TIM_TRANS, dst_tbl);
@@ -687,6 +705,26 @@ load_tech_layer_map(phx_tech_t *tech, const char *filename) {
 }
 
 
+static void
+dump_timing_arcs(phx_cell_t *cell) {
+	assert(cell);
+	printf("%s Timing Arcs:\n", cell->name);
+
+	for (unsigned u = 0; u < cell->arcs.size; ++u) {
+		phx_timing_arc_t *arc = array_get(&cell->arcs, u);
+		printf("  %s -> %s\n", arc->related_pin->name, arc->pin->name);
+		if (arc->delay) {
+			printf("    Delay:\n");
+			phx_table_dump(arc->delay, stdout);
+		}
+		if (arc->transition) {
+			printf("    Transition:\n");
+			phx_table_dump(arc->transition, stdout);
+		}
+	}
+}
+
+
 int
 main(int argc, char **argv) {
 	int res;
@@ -757,6 +795,9 @@ main(int argc, char **argv) {
 	plot_cell_as_pdf(phx_library_find_cell(lib, "BS1", false), "debug_BS1.pdf");
 	plot_cell_as_pdf(phx_library_find_cell(lib, "ND2M0R", false), "debug_ND2M0R.pdf");
 	plot_cell_as_pdf(phx_library_find_cell(lib, "NR2M0R", false), "debug_NR2M0R.pdf");
+
+	// dump_timing_arcs(phx_library_find_cell(lib, "BS1", false));
+	// dump_timing_arcs(phx_library_find_cell(lib, "ND2M0R", false));
 
 	// Assemble the bit slice cells.
 	gds_lib_t *gds_lib = gds_lib_create();
@@ -845,7 +886,8 @@ main(int argc, char **argv) {
 
 		// Add the data pin.
 		phx_pin_t *pD = cell_find_pin(cell, "D"),
-		          *pInnerD = cell_find_pin(inner, "D");
+		          *pInnerD = cell_find_pin(inner, "D"),
+		          *pInnerQ = cell_find_pin(inner, "Q");
 		connect(cell, pD, NULL, pInnerD, i0);
 		connect(cell, pD, NULL, pInnerD, i1);
 		phx_layer_add_shape(phx_geometry_on_layer(phx_pin_get_geometry(pD), L_ME2), 4, (vec2_t[]){
@@ -872,15 +914,26 @@ main(int argc, char **argv) {
 			phx_inst_set_orientation(imux, PHX_MIRROR_Y);
 		}
 
+		// Connect the mux pins.
+		phx_pin_t *pZ = cell_find_pin(cell, "Z"),
+		          *pMuxA = cell_find_pin(cmux, "A"),
+		          *pMuxB = cell_find_pin(cmux, "B"),
+		          *pMuxZ = cell_find_pin(cmux, "Z");
+		connect(cell, pMuxA, imux, pInnerQ, i0);
+		connect(cell, pMuxB, imux, pInnerQ, i0);
+		connect(cell, pZ, NULL, pMuxZ, imux);
+		phx_inst_copy_geometry_to_parent(imux, &pMuxZ->geo, &pZ->geo);
+
+		// Internal routing.
 		if (u == 1) {
-			// Connect I1.Z to I2.B
+			// Connect I1.Q to I2.B
 			umc65_route(cell, tech, (vec2_t){2.7e-6, 0.7e-6}, 1, 1, 3, (struct route_segment[]){
 				{ROUTE_Y, 1.4e-6, 2},
 				{ROUTE_X, 2.1e-6, 3},
 				{ROUTE_Y, 2.8e-6, 2},
 			});
 
-			// Connect I0.Z to I2.A
+			// Connect I0.Q to I2.A
 			umc65_route(cell, tech, (vec2_t){2.2e-6, 0.8e-6}, 1, 1, 1, (struct route_segment[]){
 				{ROUTE_X, 2.2e-6, 1},
 			});
@@ -902,7 +955,7 @@ main(int argc, char **argv) {
 			p_dst_b.y += y_dst;
 			p_src.y += y_src;
 
-			// Connect I0.Z to I2.B
+			// Connect I0.Q to I2.B
 			umc65_route(cell, tech, p_src, 1, 1, 6, (struct route_segment[]){
 				{ROUTE_Y, p_src.y + 0.1e-6, 1},
 				{ROUTE_Y, y_src + 0.4e-6, 2},
@@ -912,7 +965,7 @@ main(int argc, char **argv) {
 				{ROUTE_Y, p_dst_a.y, 2},
 			});
 
-			// Connect I1.Z to I2.A
+			// Connect I1.Q to I2.A
 			p_src.y += Nh*1.8e-6;
 			y_src += Nh*1.8e-6;
 			umc65_route(cell, tech, p_src, 1, 1, 5, (struct route_segment[]){
@@ -930,6 +983,7 @@ main(int argc, char **argv) {
 		cell_update_extents(cell);
 		phx_cell_update(cell, 0xFF);
 
+		dump_timing_arcs(cell);
 		// dump_cell_nets(cell, stdout);
 		char path[128];
 		snprintf(path, sizeof(path), "debug_%s.pdf", name);

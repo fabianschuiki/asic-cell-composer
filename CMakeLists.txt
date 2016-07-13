@@ -26,6 +26,7 @@ add_library(obj-common OBJECT
 	src/util-array.c
 	src/util-ptrset.c
 	src/table.c
+	src/table-fmt.c
 	src/tech.c
 )
 add_library(obj-design OBJECT

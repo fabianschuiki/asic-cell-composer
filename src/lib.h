@@ -108,9 +108,24 @@ enum lib_model_parameter {
 	LIB_MODEL_NUM_PARAMS       = 0xC,
 };
 
-enum lib_table_index {
-	LIB_IDX_NONE = 0,
-	LIB_IDX_SOME,
+enum lib_table_variable {
+	LIB_VAR_UNIT_MASK   = 0x3,
+	LIB_VAR_UNIT_TIME   = 0x0,
+	LIB_VAR_UNIT_CAP    = 0x1,
+	LIB_VAR_UNIT_LENGTH = 0x2,
+
+	LIB_VAR_NONE = 0,
+	LIB_VAR_IN_TRAN        = 0x10 | LIB_VAR_UNIT_TIME,
+	LIB_VAR_OUT_CAP_TOTAL  = 0x20 | LIB_VAR_UNIT_CAP,
+	LIB_VAR_OUT_CAP_PIN    = 0x30 | LIB_VAR_UNIT_CAP,
+	LIB_VAR_OUT_CAP_WIRE   = 0x40 | LIB_VAR_UNIT_CAP,
+	LIB_VAR_OUT_NET_LENGTH = 0x50 | LIB_VAR_UNIT_LENGTH,
+	LIB_VAR_CON_TRAN       = 0x60 | LIB_VAR_UNIT_TIME,
+	LIB_VAR_REL_TRAN       = 0x70 | LIB_VAR_UNIT_TIME,
+	LIB_VAR_REL_CAP_TOTAL  = 0x80 | LIB_VAR_UNIT_CAP,
+	LIB_VAR_REL_CAP_PIN    = 0x90 | LIB_VAR_UNIT_CAP,
+	LIB_VAR_REL_CAP_WIRE   = 0xA0 | LIB_VAR_UNIT_CAP,
+	LIB_VAR_REL_NET_LENGTH = 0xB0 | LIB_VAR_UNIT_LENGTH,
 };
 
 const char *lib_errstr(int err);
@@ -152,3 +167,10 @@ unsigned lib_timing_get_num_related_pins(lib_timing_t*);
 const char *lib_timing_get_related_pin(lib_timing_t*, unsigned);
 unsigned lib_timing_get_type(lib_timing_t*);
 unsigned lib_timing_get_sense(lib_timing_t*);
+
+unsigned lib_table_get_num_dims(lib_table_t*);
+unsigned lib_table_get_variable(lib_table_t*, unsigned);
+unsigned lib_table_get_num_indices(lib_table_t*, unsigned);
+double *lib_table_get_indices(lib_table_t*, unsigned);
+unsigned lib_table_get_num_values(lib_table_t*);
+double *lib_table_get_values(lib_table_t*);

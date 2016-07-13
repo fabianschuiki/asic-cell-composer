@@ -284,17 +284,17 @@ static const struct option table_opts[] = {
 };
 
 static const struct option variable_opts[] = {
-	{ "constrained_pin_transition", 1 },
-	{ "input_net_transition", 1 },
-	{ "output_net_length", 1 },
-	{ "output_net_pin_cap", 1 },
-	{ "output_net_wire_cap", 1 },
-	{ "related_out_output_net_length", 1 },
-	{ "related_out_output_net_pin_cap", 1 },
-	{ "related_out_output_net_wire_cap", 1 },
-	{ "related_out_total_output_net_capacitance", 1 },
-	{ "related_pin_transition", 1 },
-	{ "total_output_net_capacitance", 1 },
+	{ "constrained_pin_transition",               LIB_VAR_CON_TRAN       },
+	{ "input_net_transition",                     LIB_VAR_IN_TRAN        },
+	{ "output_net_length",                        LIB_VAR_OUT_NET_LENGTH },
+	{ "output_net_pin_cap",                       LIB_VAR_OUT_CAP_PIN    },
+	{ "output_net_wire_cap",                      LIB_VAR_OUT_CAP_WIRE   },
+	{ "related_out_output_net_length",            LIB_VAR_REL_NET_LENGTH },
+	{ "related_out_output_net_pin_cap",           LIB_VAR_REL_CAP_PIN    },
+	{ "related_out_output_net_wire_cap",          LIB_VAR_REL_CAP_WIRE   },
+	{ "related_out_total_output_net_capacitance", LIB_VAR_REL_CAP_TOTAL  },
+	{ "related_pin_transition",                   LIB_VAR_REL_TRAN       },
+	{ "total_output_net_capacitance",             LIB_VAR_OUT_CAP_TOTAL  },
 };
 
 
@@ -585,7 +585,7 @@ stmt_timing(lib_parser_t *parser, void *arg, enum stmt_kind kind, char *name, ch
 
 				// Ensure the table template contains enough information to
 				// allocate storage for the final table.
-				if (tmpl.fmt.indices[0] == LIB_IDX_NONE) {
+				if (tmpl.fmt.indices[0] == LIB_VAR_NONE) {
 					fprintf(stderr, "Table %s must have at least one axis\n", name);
 					err = LIB_ERR_SYNTAX;
 					goto fail_tmpl;
@@ -597,6 +597,20 @@ stmt_timing(lib_parser_t *parser, void *arg, enum stmt_kind kind, char *name, ch
 						fprintf(stderr, "Table %s cannot have index %u set while index %u is left undefined\n", name, u+1, u);
 						err = LIB_ERR_SYNTAX;
 						goto fail_tmpl;
+					}
+				}
+
+				// Apply the unit to the indices.
+				for (unsigned u = 0; u < ASIZE(tmpl.fmt.variables); ++u) {
+					if (tmpl.fmt.variables[u] == LIB_VAR_NONE)
+						continue;
+					double unit = 1;
+					switch (tmpl.fmt.variables[u] & LIB_VAR_UNIT_MASK) {
+						case LIB_VAR_UNIT_TIME: unit = parser->lib->time_unit; break;
+						case LIB_VAR_UNIT_CAP:  unit = parser->lib->capacitance_unit; break;
+					}
+					for (unsigned v = 0; v < tmpl.fmt.num_indices[u]; ++v) {
+						tmpl.fmt.indices[u][v] *= unit;
 					}
 				}
 
@@ -624,7 +638,7 @@ stmt_timing(lib_parser_t *parser, void *arg, enum stmt_kind kind, char *name, ch
 
 				unsigned stride = 1;
 				for (int i = ASIZE(tmpl.fmt.indices)-1; i >= 0; --i) {
-					if (tmpl.fmt.variables[i] != LIB_IDX_NONE) {
+					if (tmpl.fmt.variables[i] != LIB_VAR_NONE) {
 						tbl->strides[i] = stride;
 						stride *= tmpl.fmt.num_indices[i];
 					}

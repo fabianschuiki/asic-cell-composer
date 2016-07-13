@@ -397,6 +397,51 @@ table_free(lib_table_t *tbl) {
 }
 
 
+unsigned
+lib_table_get_num_dims(lib_table_t *tbl) {
+	assert(tbl);
+	for (unsigned i = ASIZE(tbl->fmt.variables); i > 0; --i)
+		if (tbl->fmt.variables[i-1] != LIB_VAR_NONE)
+			return i;
+	return 0;
+}
+
+
+unsigned
+lib_table_get_variable(lib_table_t *tbl, unsigned idx) {
+	assert(tbl && idx < ASIZE(tbl->fmt.variables));
+	return tbl->fmt.variables[idx];
+}
+
+
+unsigned
+lib_table_get_num_indices(lib_table_t *tbl, unsigned idx) {
+	assert(tbl && idx < ASIZE(tbl->fmt.num_indices));
+	return tbl->fmt.num_indices[idx];
+}
+
+
+double *
+lib_table_get_indices(lib_table_t *tbl, unsigned idx) {
+	assert(tbl && idx < ASIZE(tbl->fmt.indices));
+	return tbl->fmt.indices[idx];
+}
+
+
+unsigned
+lib_table_get_num_values(lib_table_t *tbl) {
+	assert(tbl);
+	return tbl->num_values;
+}
+
+
+double *
+lib_table_get_values(lib_table_t *tbl) {
+	assert(tbl);
+	return tbl->values;
+}
+
+
 void
 lib_table_format_init(lib_table_format_t *fmt) {
 	assert(fmt);

@@ -441,8 +441,8 @@ table_lerpcpy_axis(double *old_values, double *new_values, uint8_t axis, phx_tab
 }
 
 static phx_table_t *
-fix_output_capacitance(phx_table_t *tbl, double capacitance) {
-	assert(tbl);
+fix_output_capacitance(phx_table_t *tbl, double capacitance, double *scalar) {
+	assert(tbl && scalar);
 
 	/// @todo Move this to table.c
 
@@ -454,7 +454,13 @@ fix_output_capacitance(phx_table_t *tbl, double capacitance) {
 	if (!lerp.axis)
 		return tbl;
 
-	// printf("Found cap axis to fix at %g F, lerp %u-%u %g\n", capacitance, idx_start, idx_end, f);
+	// printf("Found cap axis to fix at %g F, lerp %u-%u %g\n", capacitance, lerp.lower, lerp.upper, lerp.f);
+
+	// if (tbl->num_axes == 1) {
+	// 	// assert(0 && "Reducing table to scalar not implemented");
+	// 	*scalar = tbl->data[lerp.lower] * (1-lerp.f) + tbl->data[lerp.upper];
+	// 	return NULL;
+	// }
 
 	// Configure the new table layout without the output capacitance axis.
 	phx_table_quantity_t new_quantities[tbl->num_axes-1];
@@ -474,21 +480,25 @@ fix_output_capacitance(phx_table_t *tbl, double capacitance) {
 		}
 	}
 
-	// Make a list of axis pairs.
-	phx_table_axis_t *old_axes[new_tbl->num_axes];
-	phx_table_axis_t *new_axes[new_tbl->num_axes];
-	for (unsigned uo = 0, un = 0; uo < tbl->num_axes; ++uo) {
-		if (tbl->axes[uo].quantity == new_tbl->axes[un].quantity) {
-			old_axes[un] = tbl->axes + uo;
-			new_axes[un] = new_tbl->axes + un;
-			++un;
+	if (new_tbl->num_axes > 0) {
+		// Make a list of axis pairs.
+		phx_table_axis_t *old_axes[new_tbl->num_axes];
+		phx_table_axis_t *new_axes[new_tbl->num_axes];
+		for (unsigned uo = 0, un = 0; uo < tbl->num_axes; ++uo) {
+			if (tbl->axes[uo].quantity == new_tbl->axes[un].quantity) {
+				old_axes[un] = tbl->axes + uo;
+				new_axes[un] = new_tbl->axes + un;
+				++un;
+			}
 		}
+
+		// phx_table_dump(tbl, stdout);
+
+		// Store the interpolated values.
+		table_lerpcpy_axis(tbl->data, new_tbl->data, new_tbl->num_axes-1, old_axes, new_axes, lerp.axis, lerp.lower, lerp.upper, lerp.f);
+	} else {
+		*new_tbl->data = tbl->data[lerp.lower] * (1-lerp.f) + tbl->data[lerp.upper];
 	}
-
-	// phx_table_dump(tbl, stdout);
-
-	// Store the interpolated values.
-	table_lerpcpy_axis(tbl->data, new_tbl->data, new_tbl->num_axes-1, old_axes, new_axes, lerp.axis, lerp.lower, lerp.upper, lerp.f);
 
 	return new_tbl;
 }
@@ -542,9 +552,267 @@ resample_input_transition_lerpcpy(double *src_values, double *dst_values, uint8_
 	}
 }
 
+
+void
+phx_table_axis_get_lerp(phx_table_axis_t *axis, phx_table_index_t index, phx_table_lerp_t *out) {
+	assert(axis && out);
+	out->axis_id = axis->id;
+	out->axis = axis;
+
+	// Find the position in the requested index would be located at in the
+	// array of indices. If we find an exact match, no interpolation is
+	// necessary and we can return immediately.
+	unsigned idx_start = 0, idx_end = axis->num_indices;
+	while (idx_start < idx_end) {
+		unsigned idx_mid = idx_start + (idx_end - idx_start) / 2;
+		int64_t result = index.integer - axis->indices[idx_mid].integer;
+		if (result < 0) {
+			idx_end = idx_mid;
+		} else if (result > 0) {
+			idx_start = idx_mid + 1;
+		} else {
+			out->lower = idx_mid;
+			out->upper = idx_mid;
+			out->f = 0;
+			return;
+		}
+	}
+
+	// Since location found above may be anywhere in [0,num_indices], make sure
+	// that the start location lies within the range of indices.
+	if (idx_start+1 >= axis->num_indices) {
+		idx_start = axis->num_indices - 2;
+	}
+	idx_end = idx_start+1;
+	assert(idx_start < axis->num_indices);
+	assert(idx_end < axis->num_indices);
+
+	// Calculate the linear interpolation factor based on the two indices found
+	// above.
+	phx_table_index_t idx0 = axis->indices[idx_start];
+	phx_table_index_t idx1 = axis->indices[idx_end];
+	double f;
+	switch (axis->id & PHX_TABLE_TYPE) {
+		case PHX_TABLE_TYPE_REAL: {
+			f = (index.real - idx0.real) / (idx1.real - idx0.real);
+			if (f > 1) f = 1;
+			if (f < 0) f = 0;
+		} break;
+		case PHX_TABLE_TYPE_INT: {
+			if (index.integer == idx0.integer) {
+				f = 0;
+			} else {
+				f = 1;
+			}
+		} break;
+		default:
+			assert(0 && "invalid table axis type");
+			return;
+	}
+
+	// Fill in the remaining information.
+	out->lower = idx_start;
+	out->upper = idx_end;
+	out->f = f;
+}
+
+
+bool
+phx_table_get_lerp(phx_table_t *tbl, unsigned axis_id, phx_table_index_t index, phx_table_lerp_t *out) {
+	assert(tbl && out);
+
+	// In case the table is a scalar, no linear interpolation is possible.
+	// Nevertheless populate the output descriptor to valid information.
+	if (!tbl->fmt || !(tbl->fmt->axes_set & PHX_TABLE_MASK(axis_id))) {
+		out->axis_id = axis_id;
+		out->lower = 0;
+		out->upper = 0;
+		out->f = 0;
+		return false;
+	}
+
+	// Calculate the linear interpolation for this axis.
+	phx_table_axis_t *axis = phx_table_format_get_axis(tbl->fmt, axis_id);
+	phx_table_axis_get_lerp(axis, index, out);
+	return true;
+}
+
+
+phx_table_t *
+phx_table_reduce(phx_table_t *T, unsigned num_fixes, phx_table_fix_t *fixes) {
+	assert(T && (num_fixes == 0 || (fixes && T->fmt)));
+	if (num_fixes == 0) {
+		phx_table_ref(T);
+		return T;
+	}
+
+	// Calculate the table format of the result and at the same time gather the
+	// information required for the linear interpolation among the values.
+	uint8_t axes_set = T->fmt->axes_set;
+	phx_table_lerp_t lerp[num_fixes];
+	unsigned num_lerp = 0;
+	for (unsigned u = 0; u < num_fixes; ++u) {
+		unsigned mask = PHX_TABLE_MASK(fixes[u].axis_id);
+		if (axes_set & mask) {
+			axes_set &= ~mask;
+			if (phx_table_get_lerp(T, fixes[u].axis_id, fixes[u].index, lerp+num_lerp))
+				++num_lerp;
+		}
+	}
+	if (axes_set == T->fmt->axes_set) {
+		phx_table_ref(T);
+		return T;
+	}
+	phx_table_format_t *fmt = phx_table_format_create(axes_set);
+	if (fmt) {
+		for (unsigned u = 0; u < fmt->num_axes; ++u) {
+			phx_table_axis_t *src_axis = phx_table_format_get_axis(T->fmt, fmt->axes[u].id);
+			phx_table_format_set_indices(fmt, fmt->axes[u].id, src_axis->num_indices, src_axis->indices);
+		}
+	}
+	phx_table_format_update_strides(fmt);
+	phx_table_format_finalize(fmt);
+
+	// Create the result table and copy things over.
+	phx_table_t *tbl = phx_table_create_with_format(fmt);
+	if (fmt) phx_table_format_unref(fmt);
+	phx_table_copy_values(axes_set, tbl, T, 0, 0, num_lerp, lerp);
+	return tbl;
+}
+
+
+/**
+ * Join two tables by using the values of the index table to index into the base
+ * table.
+ */
+phx_table_t *
+phx_table_join(phx_table_t *Tbase, unsigned axis_id, phx_table_t *Tindex) {
+	assert(Tbase && Tbase->fmt && Tindex);
+	unsigned axis_mask = PHX_TABLE_MASK(axis_id);
+
+	// Handle the special case where the base table does not contain the axis
+	// that we're supposed to join along, in which case the base table is the
+	// result of the join.
+	if (!Tbase->fmt || !(Tbase->fmt->axes_set & axis_mask)) {
+		phx_table_ref(Tbase);
+		return Tbase;
+	}
+
+	// Handle the special case where the index table is a scalar. The join thus
+	// becomes a simple reduction.
+	if (!Tindex->fmt) {
+		return phx_table_reduce(Tbase, 1, (phx_table_fix_t[]){{axis_id, {Tindex->data[0]}}});
+	}
+
+	// Calculate the format of the result table. The process removes the axis
+	// that is being indexed to, but adds all axes from the indexing table.
+	uint8_t axes_set = (Tbase->fmt->axes_set & ~axis_mask) | Tindex->fmt->axes_set;
+	phx_table_format_t *fmt = phx_table_format_create(axes_set);
+	assert(fmt); // At least all of Tindex' axes are present in the table.
+	for (unsigned u = 0; u < fmt->num_axes; ++u) {
+		phx_table_axis_t *axis = phx_table_format_get_axis(
+			(Tindex->fmt->axes_set & PHX_TABLE_MASK(fmt->axes[u].id))
+				? Tindex->fmt
+				: Tbase->fmt,
+			fmt->axes[u].id
+		);
+		phx_table_format_set_indices(fmt, fmt->axes[u].id, axis->num_indices, axis->indices);
+	}
+	phx_table_format_update_strides(fmt);
+	phx_table_format_finalize(fmt);
+	phx_table_t *tbl = phx_table_create_with_format(fmt);
+	phx_table_format_unref(fmt);
+
+	// Establish the nested loops that are required to copy the values over.
+	unsigned num_loops = Tindex->fmt->num_axes;
+	unsigned max[num_loops];
+	unsigned index[num_loops];
+	unsigned src_stride[num_loops];
+	unsigned dst_stride[num_loops];
+	for (unsigned u = 0; u < Tindex->fmt->num_axes; ++u) {
+		phx_table_axis_t *axis = Tindex->fmt->axes + u;
+		index[u] = 0;
+		max[u] = axis->num_indices;
+		src_stride[u] = axis->stride;
+		dst_stride[u] = phx_table_format_get_axis(Tbase->fmt, axis->id)->stride;
+	}
+
+	// For every value in the Tindex table, calculate the linear interpolation
+	// within the Tbase table and perform a copy of the values.
+	bool carry;
+	do {
+		// Calculate the index into Tindex and the result table.
+		unsigned src_idx = 0, dst_idx = 0;
+		for (unsigned u = 0; u < num_loops; ++u) {
+			src_idx += index[u] * src_stride[u];
+			dst_idx += index[u] * dst_stride[u];
+		}
+
+		// Copy the values over.
+		phx_table_lerp_t lerp;
+		phx_table_get_lerp(Tbase, axis_id, (phx_table_index_t){Tindex->data[src_idx]}, &lerp);
+		phx_table_copy_values(Tbase->fmt->axes_set & ~axis_mask, tbl, Tbase, dst_idx, 0, 1, &lerp);
+
+		// Increment the indices.
+		carry = true;
+		for (unsigned u = 0; carry && u < num_loops; ++u) {
+			++index[u];
+			if (index[u] == max[u]) {
+				index[u] = 0;
+				carry = true;
+			} else {
+				carry = false;
+			}
+		}
+	} while (!carry);
+
+	return tbl;
+}
+
+
 static phx_table_t *
 resample_input_transition(phx_table_t *Tbase, phx_table_t *Tres) {
 	assert(Tbase && Tres);
+	printf("Resampling input transition with %uD resampling table\n", (unsigned)Tres->num_axes);
+
+	phx_table_t *stuff = phx_table_join(Tbase, PHX_TABLE_IN_TRANS, Tres);
+	if (stuff) {
+		printf("Joined table is:\n");
+		phx_table_dump(stuff, stdout);
+	}
+	// 	phx_table_unref(stuff);
+
+	if (Tres->num_axes == 0) {
+		phx_table_lerp_t lerp;
+		phx_table_lerp_axes(Tbase, 1, (phx_table_quantity_t[]){PHX_TABLE_IN_TRANS}, (phx_table_index_t[]){{*Tres->data}}, &lerp);
+
+		phx_table_quantity_t quantities[Tbase->num_axes];
+		uint16_t num_indices[Tbase->num_axes];
+		phx_table_axis_t *src_axis[Tbase->num_axes];
+		unsigned num_axes = 0;
+		int pivot_axis = -1;
+		for (unsigned u = 0; u < Tbase->num_axes; ++u) {
+			if (Tbase->axes[u].quantity != PHX_TABLE_IN_TRANS) {
+				quantities[num_axes] = Tbase->axes[u].quantity;
+				num_indices[num_axes] = Tbase->axes[u].num_indices;
+				src_axis[num_axes] = Tbase->axes + u;
+				++num_axes;
+			} else {
+				pivot_axis = u;
+			}
+		}
+		assert(pivot_axis != -1 && "base table does not contain an IN_TRANS axis");
+
+		phx_table_t *tbl = phx_table_new(num_axes, quantities, num_indices);
+		for (unsigned u = 0; u < num_axes; ++u) {
+			phx_table_set_indices(tbl, quantities[u], src_axis[u]->indices);
+		}
+
+		resample_input_transition_lerpcpy(Tbase->data, tbl->data, tbl->num_axes-1, Tbase->axes, tbl->axes, &lerp, pivot_axis);
+		phx_table_dump(tbl, stdout);
+		return tbl;
+	}
+
 	assert(Tres->num_axes == 1);
 
 	// printf("Resampling:\n");
@@ -715,8 +983,18 @@ phx_net_update_arc_forward(phx_net_t *net, phx_net_t *other_net, phx_timing_arc_
 	phx_table_t *delay = arc->delay;
 	phx_table_t *transition = arc->transition;
 	if (!net->is_exposed) {
-		if (delay) delay = fix_output_capacitance(delay, net->capacitance);
-		if (transition) transition = fix_output_capacitance(transition, net->capacitance);
+		if (delay) {
+			double scalar_delay;
+			delay = fix_output_capacitance(delay, net->capacitance, &scalar_delay);
+			if (!delay)
+				printf("  Scalar Delay %g\n", scalar_delay);
+		}
+		if (transition) {
+			double scalar_transition;
+			transition = fix_output_capacitance(transition, net->capacitance, &scalar_transition);
+			if (!transition)
+				printf("  Scalar Transition %g\n", scalar_transition);
+		}
 	} else {
 		/// @todo Account for the capacitance of the net (due to routing, etc.)
 		/// by subtracting it from the output capacitance indices of the delay
