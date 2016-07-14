@@ -8,11 +8,13 @@
  * Bits of a design that can be invalid.
  */
 enum {
-	PHX_EXTENTS   = 1 << 0,
-	PHX_TIMING    = 1 << 1,
-	PHX_POWER_LKG = 1 << 2,
-	PHX_POWER_INT = 1 << 3,
-	PHX_INIT_INVALID = PHX_EXTENTS | PHX_TIMING | PHX_POWER_LKG | PHX_POWER_INT,
+	PHX_EXTENTS      = 1 << 0,
+	PHX_CAPACITANCES = 1 << 1,
+	PHX_TIMING       = 1 << 2,
+	PHX_POWER_LKG    = 1 << 3,
+	PHX_POWER_INT    = 1 << 4,
+	PHX_ALL_BITS     = 0x1F,
+	PHX_INIT_INVALID = PHX_ALL_BITS,
 };
 
 struct phx_extents {
@@ -77,7 +79,6 @@ struct phx_pin {
 };
 
 struct phx_cell {
-	uint8_t flags;
 	/// The bits of this cell that need to be recalculated.
 	uint8_t invalid;
 	/// The library this cell is part of.
@@ -104,6 +105,10 @@ struct phx_cell {
 	gds_struct_t *gds;
 	/// The leakage power the cell dissipates.
 	double leakage_power;
+	/// Instantiations of this cell.
+	ptrset_t uses;
+	/// Manually created GDS text elements.
+	array_t gds_text;
 };
 
 enum phx_orientation {
@@ -118,14 +123,12 @@ enum phx_orientation {
 };
 
 struct phx_inst {
+	/// Invalidated bits of the instance.
+	uint8_t invalid;
 	/// The instantiated cell.
 	phx_cell_t *cell;
 	/// The cell within which this instance is placed.
 	phx_cell_t *parent;
-	/// Various flags.
-	uint8_t flags;
-	/// Invalidated bits of the instance.
-	uint8_t invalid;
 	/// The instance's orientation.
 	uint8_t orientation; /* enum phx_orientation */
 	/// The instance name.
@@ -134,16 +137,6 @@ struct phx_inst {
 	vec2_t pos;
 	/// The instance's extents.
 	phx_extents_t ext;
-};
-
-struct phx_net {
-	uint8_t invalid;
-	phx_cell_t *cell;
-	char *name;
-	array_t conns; /* phx_terminal_t */
-	double capacitance;
-	array_t arcs; /* phx_timing_arc_t */
-	int is_exposed;
 };
 
 struct phx_terminal {
@@ -161,6 +154,13 @@ struct phx_timing_arc {
 	phx_pin_t *related_pin;
 	phx_table_t *delay;
 	phx_table_t *transition;
+};
+
+struct phx_gds_text {
+	unsigned layer;
+	unsigned type;
+	vec2_t pos;
+	char *text;
 };
 
 
@@ -183,11 +183,9 @@ vec2_t phx_cell_get_origin(phx_cell_t*);
 vec2_t phx_cell_get_size(phx_cell_t*);
 size_t phx_cell_get_num_insts(phx_cell_t*);
 phx_inst_t *phx_cell_get_inst(phx_cell_t*, size_t idx);
+phx_inst_t *phx_cell_find_inst(phx_cell_t*, const char*);
 phx_geometry_t *phx_cell_get_geometry(phx_cell_t*);
-void cell_update_extents(phx_cell_t*);
 phx_pin_t *cell_find_pin(phx_cell_t*, const char *name);
-void cell_update_capacitances(phx_cell_t*);
-void cell_update_timing_arcs(phx_cell_t*);
 void phx_cell_set_gds(phx_cell_t *cell, gds_struct_t *gds);
 gds_struct_t *phx_cell_get_gds(phx_cell_t *cell);
 unsigned phx_cell_get_num_pins(phx_cell_t*);
@@ -195,6 +193,7 @@ phx_pin_t *phx_cell_get_pin(phx_cell_t*, unsigned);
 void phx_cell_set_timing_table(phx_cell_t*, phx_pin_t*, phx_pin_t*, phx_timing_type_t, phx_table_t*);
 void phx_cell_update(phx_cell_t*, uint8_t);
 double phx_cell_get_leakage_power(phx_cell_t*);
+void phx_cell_add_gds_text(phx_cell_t*, unsigned, unsigned, vec2_t, const char*);
 
 /* Pin */
 const char *phx_pin_get_name(phx_pin_t*);
@@ -234,3 +233,29 @@ phx_orientation_t phx_inst_get_orientation(phx_inst_t*);
 vec2_t phx_inst_vec_from_parent(phx_inst_t*, vec2_t);
 vec2_t phx_inst_vec_to_parent(phx_inst_t*, vec2_t);
 void phx_inst_copy_geometry_to_parent(phx_inst_t*, phx_geometry_t*, phx_geometry_t*);
+void phx_inst_update(phx_inst_t*, uint8_t);
+
+
+/**
+ * @defgroup net Net
+ * @{
+ */
+struct phx_net {
+	/// Invalidated bits of the net.
+	uint8_t invalid;
+	/// The cell this net belongs to.
+	phx_cell_t *cell;
+	/// The net's name.
+	char *name;
+	/// The connections this net makes.
+	array_t conns; /* phx_terminal_t */
+	/// The capacitance of this net, including attached pins.
+	double capacitance;
+	/// The timing arcs to this net.
+	array_t arcs; /* phx_timing_arc_t */
+	/// Whether this net is visible outside the cell through a pin.
+	int is_exposed;
+};
+
+void phx_net_update(phx_net_t*, uint8_t);
+/** @} */

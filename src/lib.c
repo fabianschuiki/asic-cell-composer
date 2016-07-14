@@ -150,6 +150,208 @@ apply_si_prefix(double v, char *prefix) {
 }
 
 
+static const struct {
+	unsigned id;
+	const char *name;
+} params[] = {
+	{LIB_MODEL_INTRINSIC_RISE,   "intrinsic_rise"},
+	{LIB_MODEL_INTRINSIC_FALL,   "intrinsic_fall"},
+	{LIB_MODEL_RESISTANCE_RISE,  "resistance_rise"},
+	{LIB_MODEL_RESISTANCE_FALL,  "resistance_fall"},
+	{LIB_MODEL_CELL_RISE,        "cell_rise"},
+	{LIB_MODEL_CELL_FALL,        "cell_fall"},
+	{LIB_MODEL_PROPAGATION_RISE, "propagation_rise"},
+	{LIB_MODEL_PROPAGATION_FALL, "propagation_fall"},
+	{LIB_MODEL_TRANSITION_RISE,  "transition_rise"},
+	{LIB_MODEL_TRANSITION_FALL,  "transition_fall"},
+	{LIB_MODEL_CONSTRAINT_RISE,  "constraint_rise"},
+	{LIB_MODEL_CONSTRAINT_FALL,  "constraint_fall"},
+};
+
+
+static void
+write_table_format(lib_t *lib, lib_table_format_t *fmt, FILE *out, const char *indent) {
+	for (unsigned u = 0; u < 3; ++u) {
+		const char *name = NULL;
+		switch (fmt->variables[u]) {
+			case LIB_VAR_IN_TRAN:        name = "input_net_transition"; break;
+			case LIB_VAR_OUT_CAP_TOTAL:  name = "total_output_net_capacitance"; break;
+			case LIB_VAR_OUT_CAP_PIN:    name = "output_net_pin_cap"; break;
+			case LIB_VAR_OUT_CAP_WIRE:   name = "output_net_wire_cap"; break;
+			case LIB_VAR_OUT_NET_LENGTH: name = "output_net_length"; break;
+			case LIB_VAR_CON_TRAN:       name = "constrained_pin_transition"; break;
+			case LIB_VAR_REL_TRAN:       name = "related_pin_transition"; break;
+			case LIB_VAR_REL_CAP_TOTAL:  name = "related_out_total_output_net_capacitance"; break;
+			case LIB_VAR_REL_CAP_PIN:    name = "related_out_output_net_pin_cap"; break;
+			case LIB_VAR_REL_CAP_WIRE:   name = "related_out_output_net_wire_cap"; break;
+			case LIB_VAR_REL_NET_LENGTH: name = "related_out_output_net_length"; break;
+		}
+		if (name) {
+			fprintf(out, "%svariable_%u : %s;\n", indent, u+1, name);
+		}
+	}
+
+	for (unsigned u = 0; u < 3; ++u) {
+		if (fmt->variables[u] == LIB_VAR_NONE)
+			continue;
+
+		// Lookup the unit the index values should be scaled with.
+		double unit = 1;
+		switch (fmt->variables[u] & LIB_VAR_UNIT_MASK) {
+			case LIB_VAR_UNIT_TIME:   unit = lib->time_unit; break;
+			case LIB_VAR_UNIT_CAP:    unit = lib->capacitance_unit; break;
+			case LIB_VAR_UNIT_LENGTH: unit = 1e-9; break;
+		}
+
+		// Write the index values.
+		fprintf(out, "%sindex_%u(\"", indent, u+1);
+		for (unsigned v = 0; v < fmt->num_indices[u]; ++v) {
+			if (v > 0) fputc(',', out);
+			fprintf(out, "%f", fmt->indices[u][v] / unit);
+		}
+		fprintf(out, "\");\n");
+	}
+}
+
+
+/**
+ * Write a table to a file.
+ */
+static void
+write_table(lib_t *lib, lib_table_t *tbl, FILE *out, const char *indent) {
+	assert(tbl && out);
+	assert(tbl->values);
+
+	size_t indent_len = strlen(indent);
+	char indent2[indent_len+2];
+	memcpy(indent2, indent, indent_len);
+	indent2[indent_len] = '\t';
+	indent2[indent_len+1] = 0;
+
+	fprintf(out, "(%s) {\n", "some_table_format");
+	write_table_format(lib, &tbl->fmt, out, indent2);
+
+	unsigned max[3];
+	unsigned index[3];
+	unsigned stride[3];
+	unsigned num = 0;
+	for (unsigned u = 0; u < 3; ++u) {
+		if (tbl->fmt.variables[2-u] != LIB_VAR_NONE) {
+			max[num] = tbl->fmt.num_indices[2-u];
+			assert(max[num] > 0);
+			index[num] = 0;
+			stride[num] = tbl->strides[2-u];
+			++num;
+		}
+	}
+
+	fprintf(out, "%svalues(", indent2);
+
+	bool carry;
+	do {
+		if (num > 1 && index[0] == 0 && index[1] > 0)
+			fprintf(out, ", \\\n%s       ", indent2);
+		if (num > 0) {
+			fputc(index[0] == 0 ? '"' : ',', out);
+		}
+
+		unsigned idx = 0;
+		for (unsigned u = 0; u < num; ++u) {
+			idx += index[u] * stride[u];
+		}
+		fprintf(out, "%f", tbl->values[idx] / lib->time_unit);
+
+		carry = true;
+		for (unsigned u = 0; carry && u < num; ++u) {
+			++index[u];
+			if (index[u] == max[u]) {
+				index[u] = 0;
+				carry = true;
+				if (u == 0)
+					fputc('"', out);
+			} else {
+				carry = false;
+			}
+		}
+
+	} while (!carry);
+
+	fprintf(out, ");\n");
+	fprintf(out, "%s}\n", indent);
+}
+
+
+/**
+ * Write a timing group to a file.
+ */
+static void
+write_timing(lib_t *lib, lib_timing_t *tmg, FILE *out, const char *indent) {
+	assert(tmg && out);
+
+	size_t indent_len = strlen(indent);
+	char indent2[indent_len+2];
+	memcpy(indent2, indent, indent_len);
+	indent2[indent_len] = '\t';
+	indent2[indent_len+1] = 0;
+
+	fprintf(out, "%stiming() {\n", indent);
+
+	// Related pins
+	if (tmg->related_pins.size > 0) {
+		fprintf(out, "%srelated_pin : \"", indent2);
+		for (unsigned u = 0; u < tmg->related_pins.size; ++u) {
+			if (u > 0)
+				fputc(' ', out);
+			fprintf(out, "%s", array_at(tmg->related_pins, const char*, u));
+		}
+		fprintf(out, "\";\n");
+	}
+
+	// Timing sense
+	const char *sense = NULL;
+	switch (tmg->timing_sense) {
+		case LIB_TMG_POSITIVE_UNATE: sense = "positive_unate"; break;
+		case LIB_TMG_NEGATIVE_UNATE: sense = "negative_unate"; break;
+		case LIB_TMG_NON_UNATE:      sense = "non_unate"; break;
+	}
+	if (sense) {
+		fprintf(out, "%stiming_sense : %s;\n", indent2, sense);
+	}
+
+	// Timing type
+	const char *type = NULL;
+	switch (tmg->timing_type) {
+		case LIB_TMG_TYPE_COMB | LIB_TMG_EDGE_BOTH: type = "combinational"; break;
+		case LIB_TMG_TYPE_COMB | LIB_TMG_EDGE_RISE: type = "combinational_rise"; break;
+		case LIB_TMG_TYPE_COMB | LIB_TMG_EDGE_FALL: type = "combinational_fall"; break;
+	}
+	if (type) {
+		fprintf(out, "%stiming_type : %s;\n", indent2, type);
+	}
+
+	// Tables
+	for (unsigned u = 0; u < LIB_MODEL_NUM_PARAMS; ++u) {
+		unsigned dim = params[u].id & LIB_MODEL_DIM_MASK;
+		if (dim == LIB_MODEL_SCALAR) {
+			if (tmg->scalars[u] != 0) {
+				fprintf(out, "%s%s : %f;\n", indent2, params[u].name, tmg->scalars[u] / lib->time_unit);
+			}
+		} else if (dim == LIB_MODEL_TABLE) {
+			if (tmg->tables[u]) {
+				fprintf(out, "%s%s ", indent2, params[u].name);
+				write_table(lib, tmg->tables[u], out, indent2);
+			} else if (tmg->scalars[u] != 0) {
+				fprintf(out, "%s%s (scalar) {\n", indent2, params[u].name);
+				fprintf(out, "%s\tvalues(\"%f\");\n", indent2, tmg->scalars[u] / lib->time_unit);
+				fprintf(out, "%s}\n", indent2);
+			}
+		}
+	}
+
+	fprintf(out, "%s}\n", indent);
+}
+
+
 /**
  * Write a pin to a file.
  */
@@ -167,6 +369,11 @@ write_pin(lib_t *lib, lib_pin_t *pin, FILE *out, const char *indent) {
 
 	// Capacitance
 	fprintf(out, "%scapacitance : %f;\n", indent2, pin->capacitance / lib->capacitance_unit);
+
+	// Timings
+	for (unsigned u = 0; u < pin->timings.size; ++u) {
+		write_timing(lib, array_at(pin->timings, lib_timing_t*, u), out, indent2);
+	}
 
 	fprintf(out, "%s} /* %s */\n", indent, pin->name);
 }

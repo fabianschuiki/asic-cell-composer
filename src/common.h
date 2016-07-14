@@ -40,6 +40,7 @@ typedef struct phx_tech phx_tech_t;
 typedef struct phx_tech_layer phx_tech_layer_t;
 typedef struct phx_terminal phx_terminal_t;
 typedef struct phx_timing_arc phx_timing_arc_t;
+typedef struct phx_gds_text phx_gds_text_t;
 typedef struct vec2 vec2_t;
 typedef union phx_table_index phx_table_index_t;
 

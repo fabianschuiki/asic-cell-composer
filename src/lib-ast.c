@@ -26,6 +26,7 @@ lib_new(const char *name) {
 	lib->name = dupstr(name);
 	lib->capacitance_unit = 1e-12; /* default to pF */
 	lib->leakage_power_unit = 1e-9; /* default to nW */
+	lib->time_unit = 1e-9; /* default to ns */
 	array_init(&lib->cells, sizeof(phx_cell_t*));
 	array_init(&lib->templates, sizeof(struct lib_table_template));
 	return lib;
@@ -369,6 +370,28 @@ lib_timing_get_related_pin(lib_timing_t *tmg, unsigned idx) {
 }
 
 
+void
+lib_timing_add_related_pin(lib_timing_t *tmg, const char *name) {
+	assert(tmg && name);
+	char *dup = dupstr(name);
+	array_add(&tmg->related_pins, &dup);
+}
+
+
+void
+lib_timing_set_type(lib_timing_t *tmg, unsigned type) {
+	assert(tmg);
+	tmg->timing_type = type;
+}
+
+
+void
+lib_timing_set_sense(lib_timing_t *tmg, unsigned sense) {
+	assert(tmg);
+	tmg->timing_sense = sense;
+}
+
+
 unsigned
 lib_timing_get_type(lib_timing_t *tmg) {
 	assert(tmg);
@@ -380,6 +403,22 @@ unsigned
 lib_timing_get_sense(lib_timing_t *tmg) {
 	assert(tmg);
 	return tmg->timing_sense;
+}
+
+
+void
+lib_timing_set_scalar(lib_timing_t *tmg, unsigned param, double value) {
+	param &= LIB_MODEL_INDEX_MASK;
+	assert(tmg && param < LIB_MODEL_NUM_PARAMS);
+	tmg->scalars[param] = value;
+}
+
+
+double
+lib_timing_get_scalar(lib_timing_t *tmg, unsigned param) {
+	param &= LIB_MODEL_INDEX_MASK;
+	assert(tmg && param < LIB_MODEL_NUM_PARAMS);
+	return tmg->scalars[param];
 }
 
 
@@ -440,6 +479,41 @@ lib_table_get_values(lib_table_t *tbl) {
 	assert(tbl);
 	return tbl->values;
 }
+
+
+void
+lib_table_set_variable(lib_table_t *tbl, unsigned idx, unsigned var) {
+	assert(tbl && idx < ASIZE(tbl->fmt.variables));
+	tbl->fmt.variables[idx] = var;
+}
+
+
+void
+lib_table_set_indices(lib_table_t *tbl, unsigned idx, unsigned num_indices, double *indices) {
+	assert(tbl && idx < ASIZE(tbl->fmt.variables) && num_indices > 0 && indices);
+	if (tbl->fmt.indices[idx])
+		free(tbl->fmt.indices[idx]);
+	tbl->fmt.num_indices[idx] = num_indices;
+	tbl->fmt.indices[idx] = dupmem(indices, num_indices * sizeof(double));
+}
+
+
+void
+lib_table_set_values(lib_table_t *tbl, unsigned num_values, double *values) {
+	assert(tbl && num_values > 0 && values);
+	if (tbl->values)
+		free(tbl->values);
+	tbl->num_values = num_values;
+	tbl->values = dupmem(values, num_values * sizeof(double));
+}
+
+
+void
+lib_table_set_stride(lib_table_t *tbl, unsigned idx, unsigned stride) {
+	assert(tbl && idx < ASIZE(tbl->strides) && stride);
+	tbl->strides[idx] = stride;
+}
+
 
 
 void

@@ -27,6 +27,7 @@ add_library(obj-common OBJECT
 	src/util-ptrset.c
 	src/table.c
 	src/table-fmt.c
+	src/table-ops.c
 	src/tech.c
 )
 add_library(obj-design OBJECT
@@ -34,6 +35,7 @@ add_library(obj-design OBJECT
 	src/design-cell.c
 	src/design-inst.c
 	src/design-geometry.c
+	src/design-net.c
 	src/fmt-lef.c
 	src/fmt-lib.c
 )
@@ -49,15 +51,26 @@ add_library(obj-lib OBJECT
 	src/lib-ast.c
 )
 
-# Executable
-add_executable(phalanx
-	src/main.c
+set(PHALANX_LIB_SOURCES
+	src/misc.c
 	$<TARGET_OBJECTS:obj-common>
 	$<TARGET_OBJECTS:obj-design>
 	$<TARGET_OBJECTS:obj-lib>
 	$<TARGET_OBJECTS:obj-lef>
 )
+
+# Executable
+add_executable(phalanx
+	src/main.c
+	${PHALANX_LIB_SOURCES}
+)
 target_link_libraries(phalanx gds cairo m)
+
+add_executable(phalanx-debug
+	src/debug.c
+	${PHALANX_LIB_SOURCES}
+)
+target_link_libraries(phalanx-debug gds cairo m)
 
 # Debugging tools
 add_executable(lib-debug

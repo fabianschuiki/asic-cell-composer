@@ -9,11 +9,60 @@
  */
 
 
+/**
+ * Flag bits of an instance as invalid.
+ */
 void
-phx_inst_invalidate(phx_inst_t *inst, uint8_t mask) {
+phx_inst_invalidate(phx_inst_t *inst, uint8_t bits) {
 	assert(inst);
-	inst->invalid |= mask;
-	phx_cell_invalidate(inst->cell, mask);
+	if (~inst->invalid & bits) {
+		inst->invalid |= bits;
+		phx_cell_invalidate(inst->parent, bits);
+	}
+}
+
+
+static void
+phx_inst_update_extents(phx_inst_t *inst) {
+	assert(inst);
+	inst->invalid &= ~PHX_EXTENTS;
+
+	phx_extents_t ext = inst->cell->ext;
+	if (inst->orientation & PHX_MIRROR_X) {
+		double tmp = ext.min.x;
+		ext.min.x = -ext.max.x;
+		ext.max.x = -tmp;
+	}
+	if (inst->orientation & PHX_MIRROR_Y) {
+		double tmp = ext.min.y;
+		ext.min.y = -ext.max.y;
+		ext.max.y = -tmp;
+	}
+	if (inst->orientation & PHX_ROTATE_90) {
+		double tmp;
+		tmp = ext.min.x;
+		ext.min.x = ext.min.y;
+		ext.max.y = -tmp;
+		tmp = ext.max.x;
+		ext.max.x = ext.max.y;
+		ext.min.y = -tmp;
+	}
+
+	vec2_t off = vec2_sub(inst->pos, inst->cell->origin);
+	inst->ext.min = vec2_add(ext.min, off);
+	inst->ext.max = vec2_add(ext.max, off);
+}
+
+
+/**
+ * Update invalid bits of an instance.
+ */
+void
+phx_inst_update(phx_inst_t *inst, uint8_t bits) {
+	assert(inst);
+	phx_cell_update(inst->cell, bits);
+	if (inst->invalid & bits & PHX_EXTENTS)
+		phx_inst_update_extents(inst);
 }
 
 

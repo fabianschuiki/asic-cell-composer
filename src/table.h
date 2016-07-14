@@ -90,6 +90,10 @@ void phx_table_set_indices(phx_table_t*, phx_table_quantity_t, void*);
 void phx_table_lerp_axes(phx_table_t*, uint8_t num_lerps, phx_table_quantity_t *quantities, phx_table_index_t *values, phx_table_lerp_t *out);
 void phx_table_add(phx_table_t *Tr, phx_table_t *Ta, phx_table_t *Tb);
 void phx_table_copy_values(uint8_t, phx_table_t*, phx_table_t*, unsigned, unsigned, unsigned, phx_table_lerp_t*);
+void phx_table_axis_get_lerp(phx_table_axis_t*, phx_table_index_t, phx_table_lerp_t*);
+bool phx_table_get_lerp(phx_table_t*, unsigned, phx_table_index_t, phx_table_lerp_t*);
+phx_table_t *phx_table_reduce(phx_table_t*, unsigned, phx_table_fix_t*);
+phx_table_t *phx_table_join(phx_table_t*, unsigned, phx_table_t*);
 
 /* Format */
 phx_table_format_t *phx_table_format_create(unsigned);
