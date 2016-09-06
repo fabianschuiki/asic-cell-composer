@@ -1,6 +1,6 @@
 # Phalanx
 
-This is *Phalanx* an open source ASIC cell layout composer. It creates new standard cells by composing existing cells, raw GDS data, routes, and custom geometry. Timing and energy characteristics of the new cell are derived from its constituent parts. Phalanx reads and writes GDS, LEF, and LIB files. Additionally, it supports basic plotting of cell geometries.
+This is *Phalanx*, an open source ASIC cell layout composer. It creates new standard cells by composing existing cells, raw GDS data, routes, and custom geometry. Timing and energy characteristics of the new cell are derived from its constituent parts. Phalanx reads and writes GDS, LEF, and LIB files. Additionally, it supports basic plotting of cell geometries.
 
 
 ## Building
@@ -44,6 +44,8 @@ Phalanx uses a custom command syntax that is based on scope and context. The API
         add_cell "<cellname>";   # add cell to GDS library
         write_gds "<filename>";  # write GDS library to disk
     }
+
+Other commands exist to connect the pins of instances and calculate timing information. Refer to the `src/main.c` file for more details.
 
 
 ## Roadmap
